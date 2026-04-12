@@ -46,13 +46,27 @@ import {
   PublishJobStore,
   CreatePublishJobInput,
   PublishTarget,
+  // Phase 21
+  addBundleReviewComment,
+  addBundleReviewDecision,
+  BundleReviewStore,
+  canPublishReviewedBundle,
+  createBundleReview,
+  createInMemoryBundleReviewStore,
+  markBundlePublished,
+  submitBundleReview,
   // Phase 17
   createMarketplaceListing,
   canPublishToMarketplace,
   createInMemoryMarketplaceStore,
   MarketplaceStore,
   CreateMarketplaceListingInput,
-  MarketplaceListingType
+  MarketplaceListingType,
+  // Phase 22
+  createUsageMeteringEvent,
+  createInMemoryUsageLedgerStore,
+  UsageLedgerStore,
+  UsageMeteringEventFilter
 } from '@prompt-compiler/core';
 import { createInMemoryHostedProfileLibraryStore, HostedProfileLibraryStore } from './profileLibraryStore';
 import { createFileHostedProfileLibraryStore } from './fileProfileLibraryStore';
@@ -109,6 +123,8 @@ interface ApiAutomationJobRequest {
 interface ApiError {
   code: 'BAD_REQUEST' | 'VALIDATION_ERROR' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'SERVER_ERROR';
   message: string;
+  /** Optional: feature key for entitlement errors, allows clients to generate UX hints. */
+  featureKey?: string;
 }
 
 interface ServerOptions {
@@ -123,6 +139,10 @@ interface ServerOptions {
   publishJobStore?: PublishJobStore;
   /** Marketplace store for Phase 17 profile marketplace. */
   marketplaceStore?: MarketplaceStore;
+  /** Bundle review store for Phase 21 review/approval lifecycle. */
+  bundleReviewStore?: BundleReviewStore;
+  /** Usage ledger store for Phase 22 commercial metering. */
+  usageLedgerStore?: UsageLedgerStore;
 }
 
 function requestUrl(req: IncomingMessage): URL | null {
@@ -151,6 +171,10 @@ function json(res: ServerResponse, statusCode: number, payload: unknown): void {
 
 function errorResponse(res: ServerResponse, statusCode: number, error: ApiError): void {
   json(res, statusCode, { ok: false, error });
+}
+
+function authErrorStatus(error: { code: 'UNAUTHORIZED' | 'FORBIDDEN' }): number {
+  return error.code === 'UNAUTHORIZED' ? 401 : 403;
 }
 
 function parseBootstrapQuery(url: URL):
@@ -238,7 +262,8 @@ function requireFeatureAccess(input: {
   if (!hasFeatureAccess(resolved, input.featureKey)) {
     return {
       code: 'FORBIDDEN',
-      message: `Feature '${input.featureKey}' is not enabled for the current hosted session.`
+      message: `Feature '${input.featureKey}' is not enabled for the current hosted session.`,
+      featureKey: input.featureKey
     };
   }
 
@@ -251,6 +276,8 @@ export function createServer(options: ServerOptions = {}): http.Server {
   const feedbackStore = options.feedbackStore ?? createInMemoryFeedbackStore();
   const publishJobStore = options.publishJobStore ?? createInMemoryPublishJobStore();
   const marketplaceStore = options.marketplaceStore ?? createInMemoryMarketplaceStore();
+  const bundleReviewStore = options.bundleReviewStore ?? createInMemoryBundleReviewStore();
+  const usageLedgerStore = options.usageLedgerStore ?? createInMemoryUsageLedgerStore();
 
   return http.createServer(async (req, res) => {
     const url = requestUrl(req);
@@ -276,7 +303,17 @@ export function createServer(options: ServerOptions = {}): http.Server {
         return;
       }
 
-      json(res, 200, { ok: true, result: buildHostedSessionBootstrap(query.value) });
+      const bootstrap = buildHostedSessionBootstrap(query.value);
+
+      // Phase 22 — attach usage summary when accountId is available so extension
+      // and other surfaces can surface commercial state in a single call.
+      const bootstrapAccountId = query.value?.accountId;
+      const usageSummary =
+        bootstrapAccountId
+          ? usageLedgerStore.summarizeAccount(bootstrapAccountId)
+          : undefined;
+
+      json(res, 200, { ok: true, result: { ...bootstrap, usageSummary } });
       return;
     }
 
@@ -812,6 +849,11 @@ export function createServer(options: ServerOptions = {}): http.Server {
           provider?: ProviderTarget;
           maxTokens?: number;
           temperature?: number;
+          policy?: {
+            timeoutMs?: number;
+            maxRetries?: number;
+            retryDelayMs?: number;
+          };
           plan?: 'free' | 'pro' | 'studio';
           mode?: 'local' | 'hosted';
           entitlements?: EntitlementKey[];
@@ -842,7 +884,8 @@ export function createServer(options: ServerOptions = {}): http.Server {
           profileId: payload.profileId,
           provider: payload.provider,
           maxTokens: payload.maxTokens,
-          temperature: payload.temperature
+          temperature: payload.temperature,
+          policy: payload.policy
         });
         if (!execValidation.valid) {
           errorResponse(res, 400, {
@@ -875,10 +918,31 @@ export function createServer(options: ServerOptions = {}): http.Server {
           profileId: payload.profileId,
           provider: payload.provider,
           maxTokens: payload.maxTokens,
-          temperature: payload.temperature
+          temperature: payload.temperature,
+          policy: payload.policy
         };
 
         const result = await executeCompiledOutput(request);
+
+        // Phase 22 — record usage event for live execution only.
+        if (!isDryRun && authCtx.accountId) {
+          usageLedgerStore.append(
+            createUsageMeteringEvent({
+              accountId: authCtx.accountId,
+              workspaceId: authCtx.workspaceId ?? undefined,
+              domain: 'execute',
+              action: 'execute-compiled-output',
+              bundleId: payload.bundleId,
+              profileId: payload.profileId,
+              unit: 'request',
+              unitsConsumed: 1,
+              plan: payload.plan,
+              mode: payload.mode,
+              entitlements: payload.entitlements
+            })
+          );
+        }
+
         json(res, 200, { ok: true, result });
       } catch (error) {
         if (error instanceof SyntaxError) {
@@ -995,6 +1059,218 @@ export function createServer(options: ServerOptions = {}): http.Server {
     }
 
     // -------------------------------------------------------------------------
+    // Phase 21 — Review, Approval, and Team Workflow Layer
+    // POST /reviews/bundles
+    // GET  /reviews/bundles/:bundleId?workspaceId=<id>
+    // POST /reviews/bundles/:bundleId/submit
+    // POST /reviews/bundles/:bundleId/comments
+    // POST /reviews/bundles/:bundleId/decisions
+    // -------------------------------------------------------------------------
+
+    if (req.method === 'POST' && url.pathname === '/reviews/bundles') {
+      try {
+        const raw = await readBody(req);
+        const payload = JSON.parse(raw) as {
+          bundleId?: string;
+          workspaceId?: string;
+          requiredApprovals?: number;
+        };
+
+        if (!payload?.bundleId || typeof payload.bundleId !== 'string') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include "bundleId".' });
+          return;
+        }
+        if (!payload.workspaceId || typeof payload.workspaceId !== 'string') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include "workspaceId".' });
+          return;
+        }
+
+        const roleError = requireWorkspaceRole(authCtx, workspaceMemberStore, payload.workspaceId, 'editor');
+        if (roleError) {
+          errorResponse(res, authErrorStatus(roleError), roleError);
+          return;
+        }
+
+        const existing = bundleReviewStore.get(payload.bundleId, payload.workspaceId);
+        if (existing) {
+          json(res, 200, { ok: true, result: existing });
+          return;
+        }
+
+        const review = createBundleReview({
+          bundleId: payload.bundleId,
+          workspaceId: payload.workspaceId,
+          createdBy: authCtx.accountId!,
+          requiredApprovals: payload.requiredApprovals
+        });
+        bundleReviewStore.save(review);
+        json(res, 201, { ok: true, result: review });
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Malformed JSON body.' });
+          return;
+        }
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errorResponse(res, 500, { code: 'SERVER_ERROR', message });
+      }
+      return;
+    }
+
+    const bundleReviewMatch = url.pathname.match(/^\/reviews\/bundles\/([^/]+)$/);
+    if (bundleReviewMatch && req.method === 'GET') {
+      const bundleId = decodeURIComponent(bundleReviewMatch[1]);
+      const workspaceId = url.searchParams.get('workspaceId');
+      if (!workspaceId) {
+        errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Query must include workspaceId.' });
+        return;
+      }
+
+      const roleError = requireWorkspaceRole(authCtx, workspaceMemberStore, workspaceId, 'viewer');
+      if (roleError) {
+        errorResponse(res, authErrorStatus(roleError), roleError);
+        return;
+      }
+
+      const review = bundleReviewStore.get(bundleId, workspaceId);
+      if (!review) {
+        errorResponse(res, 404, { code: 'NOT_FOUND', message: 'Bundle review not found.' });
+        return;
+      }
+
+      json(res, 200, { ok: true, result: review });
+      return;
+    }
+
+    const submitReviewMatch = url.pathname.match(/^\/reviews\/bundles\/([^/]+)\/submit$/);
+    if (submitReviewMatch && req.method === 'POST') {
+      try {
+        const bundleId = decodeURIComponent(submitReviewMatch[1]);
+        const raw = await readBody(req);
+        const payload = JSON.parse(raw) as { workspaceId?: string };
+
+        if (!payload?.workspaceId || typeof payload.workspaceId !== 'string') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include "workspaceId".' });
+          return;
+        }
+
+        const roleError = requireWorkspaceRole(authCtx, workspaceMemberStore, payload.workspaceId, 'editor');
+        if (roleError) {
+          errorResponse(res, authErrorStatus(roleError), roleError);
+          return;
+        }
+
+        const review = bundleReviewStore.get(bundleId, payload.workspaceId);
+        if (!review) {
+          errorResponse(res, 404, { code: 'NOT_FOUND', message: 'Bundle review not found.' });
+          return;
+        }
+
+        json(res, 200, { ok: true, result: bundleReviewStore.save(submitBundleReview(review)) });
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Malformed JSON body.' });
+          return;
+        }
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errorResponse(res, 500, { code: 'SERVER_ERROR', message });
+      }
+      return;
+    }
+
+    const reviewCommentsMatch = url.pathname.match(/^\/reviews\/bundles\/([^/]+)\/comments$/);
+    if (reviewCommentsMatch && req.method === 'POST') {
+      try {
+        const bundleId = decodeURIComponent(reviewCommentsMatch[1]);
+        const raw = await readBody(req);
+        const payload = JSON.parse(raw) as { workspaceId?: string; message?: string };
+
+        if (!payload?.workspaceId || typeof payload.workspaceId !== 'string') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include "workspaceId".' });
+          return;
+        }
+        if (!payload.message || typeof payload.message !== 'string') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include "message".' });
+          return;
+        }
+
+        const roleError = requireWorkspaceRole(authCtx, workspaceMemberStore, payload.workspaceId, 'viewer');
+        if (roleError) {
+          errorResponse(res, authErrorStatus(roleError), roleError);
+          return;
+        }
+
+        const review = bundleReviewStore.get(bundleId, payload.workspaceId);
+        if (!review) {
+          errorResponse(res, 404, { code: 'NOT_FOUND', message: 'Bundle review not found.' });
+          return;
+        }
+
+        const updated = addBundleReviewComment(review, {
+          authorAccountId: authCtx.accountId!,
+          message: payload.message
+        });
+        json(res, 201, { ok: true, result: bundleReviewStore.save(updated) });
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Malformed JSON body.' });
+          return;
+        }
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errorResponse(res, 500, { code: 'SERVER_ERROR', message });
+      }
+      return;
+    }
+
+    const reviewDecisionsMatch = url.pathname.match(/^\/reviews\/bundles\/([^/]+)\/decisions$/);
+    if (reviewDecisionsMatch && req.method === 'POST') {
+      try {
+        const bundleId = decodeURIComponent(reviewDecisionsMatch[1]);
+        const raw = await readBody(req);
+        const payload = JSON.parse(raw) as {
+          workspaceId?: string;
+          decision?: 'approve' | 'request_changes';
+          comment?: string;
+        };
+
+        if (!payload?.workspaceId || typeof payload.workspaceId !== 'string') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include "workspaceId".' });
+          return;
+        }
+        if (payload.decision !== 'approve' && payload.decision !== 'request_changes') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'decision must be approve or request_changes.' });
+          return;
+        }
+
+        const roleError = requireWorkspaceRole(authCtx, workspaceMemberStore, payload.workspaceId, 'editor');
+        if (roleError) {
+          errorResponse(res, authErrorStatus(roleError), roleError);
+          return;
+        }
+
+        const review = bundleReviewStore.get(bundleId, payload.workspaceId);
+        if (!review) {
+          errorResponse(res, 404, { code: 'NOT_FOUND', message: 'Bundle review not found.' });
+          return;
+        }
+
+        const updated = addBundleReviewDecision(review, {
+          reviewerAccountId: authCtx.accountId!,
+          decision: payload.decision,
+          comment: payload.comment
+        });
+        json(res, 200, { ok: true, result: bundleReviewStore.save(updated) });
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Malformed JSON body.' });
+          return;
+        }
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errorResponse(res, 500, { code: 'SERVER_ERROR', message });
+      }
+      return;
+    }
+
+    // -------------------------------------------------------------------------
     // Phase 16 — Publishing Automation
     // POST /publish/jobs
     // GET  /publish/jobs/:jobId
@@ -1007,6 +1283,7 @@ export function createServer(options: ServerOptions = {}): http.Server {
           jobId?: string;
           bundleId?: string;
           profileId?: string;
+          workspaceId?: string;
           target?: PublishTarget;
           publishPayload?: unknown;
           createdAt?: string;
@@ -1029,6 +1306,33 @@ export function createServer(options: ServerOptions = {}): http.Server {
         }
 
         const isDryRunPublish = payload.target.kind === 'dry-run';
+        let workspaceReview = undefined;
+
+        if (payload.workspaceId) {
+          const roleError = requireWorkspaceRole(authCtx, workspaceMemberStore, payload.workspaceId, 'editor');
+          if (roleError) {
+            errorResponse(res, authErrorStatus(roleError), roleError);
+            return;
+          }
+
+          if (!isDryRunPublish) {
+            const review = bundleReviewStore.get(payload.bundleId, payload.workspaceId);
+            const member = authCtx.accountId
+              ? workspaceMemberStore.getMember(payload.workspaceId, authCtx.accountId)
+              : undefined;
+
+            if (!review || !member || !canPublishReviewedBundle(review, member.role)) {
+              errorResponse(res, 403, {
+                code: 'FORBIDDEN',
+                message: 'Workspace publish requires an approved bundle review and an editor-or-owner role.'
+              });
+              return;
+            }
+
+            workspaceReview = review;
+          }
+        }
+
         if (!isDryRunPublish) {
           const publishAccessError = requireFeatureAccess({
             plan: payload.plan,
@@ -1045,6 +1349,7 @@ export function createServer(options: ServerOptions = {}): http.Server {
         const createJobInput: CreatePublishJobInput = {
           bundleId: payload.bundleId,
           profileId: payload.profileId,
+          workspaceId: payload.workspaceId,
           target: payload.target,
           jobId: payload.jobId,
           createdAt: payload.createdAt
@@ -1053,6 +1358,30 @@ export function createServer(options: ServerOptions = {}): http.Server {
         const job = createPublishJob(createJobInput);
         const dispatched = await dispatchPublishJob({ job, payload: payload.publishPayload ?? {} });
         publishJobStore.save(dispatched);
+
+        if (workspaceReview && dispatched.status === 'delivered') {
+          bundleReviewStore.save(markBundlePublished(workspaceReview));
+        }
+
+        // Phase 22 — record usage event for live publish only.
+        if (!isDryRunPublish && authCtx.accountId) {
+          usageLedgerStore.append(
+            createUsageMeteringEvent({
+              accountId: authCtx.accountId,
+              workspaceId: payload.workspaceId,
+              domain: 'publish',
+              action: 'publish-bundle',
+              bundleId: payload.bundleId,
+              profileId: payload.profileId,
+              unit: 'request',
+              unitsConsumed: 1,
+              plan: payload.plan,
+              mode: payload.mode,
+              entitlements: payload.entitlements
+            })
+          );
+        }
+
         json(res, 201, { ok: true, result: dispatched });
       } catch (error) {
         if (error instanceof SyntaxError) {
@@ -1205,6 +1534,20 @@ export function createServer(options: ServerOptions = {}): http.Server {
         });
 
         marketplaceStore.incrementInstallCount(listing.listingId);
+
+        // Phase 22 — record usage event for marketplace installs.
+        usageLedgerStore.append(
+          createUsageMeteringEvent({
+            accountId: payload.accountId,
+            workspaceId: payload.workspaceId,
+            domain: 'marketplace-install',
+            action: 'install-listing',
+            listingId: payload.listingId,
+            unit: 'request',
+            unitsConsumed: 1
+          })
+        );
+
         json(res, 200, { ok: true, result: { installed: true, libraryEntry } });
       } catch (error) {
         if (error instanceof SyntaxError) {
@@ -1323,6 +1666,100 @@ export function createServer(options: ServerOptions = {}): http.Server {
       }
 
       json(res, 200, { ok: true, result: { removed: true } });
+      return;
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 22 — Usage metering query routes
+    // GET /usage/events?accountId=<id>&domain=<d>&from=<t>&to=<t>&unit=<u>
+    // GET /usage/summary?accountId=<id>&domain=<d>&from=<t>&to=<t>&unit=<u>
+    // -------------------------------------------------------------------------
+
+    if (req.method === 'GET' && url.pathname === '/usage/events') {
+      const accountId = url.searchParams.get('accountId');
+      if (!accountId) {
+        errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Query parameter "accountId" is required.' });
+        return;
+      }
+
+      const authErr = requireAuth(authCtx);
+      if (authErr) {
+        errorResponse(res, authErrorStatus(authErr), authErr);
+        return;
+      }
+
+      // Only allow an account to query its own usage events.
+      if (authCtx.accountId && authCtx.accountId !== accountId) {
+        errorResponse(res, 403, { code: 'FORBIDDEN', message: 'You may only query usage events for your own account.' });
+        return;
+      }
+
+      const filter: UsageMeteringEventFilter = {};
+      const domain = url.searchParams.get('domain');
+      if (domain) {
+        filter.domain = domain as UsageMeteringEventFilter['domain'];
+      }
+      const unit = url.searchParams.get('unit');
+      if (unit) {
+        filter.unit = unit as UsageMeteringEventFilter['unit'];
+      }
+      const from = url.searchParams.get('from');
+      if (from) {
+        filter.from = from;
+      }
+      const to = url.searchParams.get('to');
+      if (to) {
+        filter.to = to;
+      }
+      const workspaceId = url.searchParams.get('workspaceId');
+      if (workspaceId) {
+        filter.workspaceId = workspaceId;
+      }
+
+      const events = usageLedgerStore.listByAccount(accountId, filter);
+      json(res, 200, { ok: true, result: { events } });
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/usage/summary') {
+      const accountId = url.searchParams.get('accountId');
+      if (!accountId) {
+        errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Query parameter "accountId" is required.' });
+        return;
+      }
+
+      const authErr = requireAuth(authCtx);
+      if (authErr) {
+        errorResponse(res, authErrorStatus(authErr), authErr);
+        return;
+      }
+
+      // Only allow an account to query its own usage summary.
+      if (authCtx.accountId && authCtx.accountId !== accountId) {
+        errorResponse(res, 403, { code: 'FORBIDDEN', message: 'You may only query usage summary for your own account.' });
+        return;
+      }
+
+      const filter: UsageMeteringEventFilter = {};
+      const domain = url.searchParams.get('domain');
+      if (domain) {
+        filter.domain = domain as UsageMeteringEventFilter['domain'];
+      }
+      const unit = url.searchParams.get('unit');
+      if (unit) {
+        filter.unit = unit as UsageMeteringEventFilter['unit'];
+      }
+      const from = url.searchParams.get('from');
+      if (from) {
+        filter.from = from;
+      }
+      const to = url.searchParams.get('to');
+      if (to) {
+        filter.to = to;
+      }
+
+      const summary = usageLedgerStore.summarizeAccount(accountId, filter);
+      json(res, 200, { ok: true, result: { summary } });
       return;
     }
 

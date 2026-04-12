@@ -38,9 +38,33 @@
       "minimum": 0,
       "maximum": 2,
       "default": 0.7
+    },
+    "policy": {
+      "$ref": "#/$defs/ExecutionPolicy"
     }
   },
   "$defs": {
+    "ExecutionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30000
+        },
+        "maxRetries": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "retryDelayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 250
+        }
+      }
+    },
     "ProviderTarget": {
       "type": "object",
       "required": ["id", "type"],
@@ -49,7 +73,7 @@
         "id": { "type": "string" },
         "type": {
           "type": "string",
-          "enum": ["openai-compatible", "dry-run"]
+          "enum": ["openai-compatible", "suno", "udio", "flux", "kling", "dry-run"]
         },
         "baseUrl": {
           "type": "string",

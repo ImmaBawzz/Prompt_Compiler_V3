@@ -17,3 +17,5 @@ export * from './execution';
 export * from './feedback';
 export * from './publishing';
 export * from './marketplace';
+export * from './reviews';
+export * from './usage';

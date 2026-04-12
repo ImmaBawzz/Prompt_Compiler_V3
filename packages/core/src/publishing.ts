@@ -27,6 +27,7 @@ export function createPublishJob(input: CreatePublishJobInput): PublishJob {
     jobId: input.jobId ?? randomUUID(),
     bundleId: input.bundleId,
     profileId: input.profileId,
+    workspaceId: input.workspaceId,
     target: input.target,
     status: 'queued' as PublishJobStatus,
     createdAt: input.createdAt ?? now,

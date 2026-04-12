@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
-import { compilePromptBundle, createExportPlan, autoCompile, BrandProfile, PromptBrief } from '@prompt-compiler/core';
+import { compilePromptBundle, createExportPlan, autoCompile, BrandProfile, PromptBrief, generateEntitlementUXMessage, HostedFeatureKey } from '@prompt-compiler/core';
 
 type ArgValue = string | boolean;
 
@@ -12,10 +12,19 @@ interface CliArgs {
   exportBundle: boolean;
   execute: boolean;
   providerConfigPath: string;
+  policyTimeoutMs?: number;
+  policyMaxRetries?: number;
+  policyRetryDelayMs?: number;
   publish: boolean;
   publishConfigPath: string;
   installListingId?: string;
   marketplaceConfigPath: string;
+  reviewConfigPath: string;
+  reviewStart: boolean;
+  reviewStatus: boolean;
+  reviewComment?: string;
+  reviewDecision?: 'approve' | 'request_changes';
+  reviewBundleId?: string;
   outputPath?: string;
   showHelp: boolean;
   prompt?: string;
@@ -37,6 +46,11 @@ interface ProviderExecutionConfig {
   plan?: 'free' | 'pro' | 'studio';
   mode?: 'local' | 'hosted';
   entitlements?: string[];
+  policy?: {
+    timeoutMs?: number;
+    maxRetries?: number;
+    retryDelayMs?: number;
+  };
 }
 
 interface PublishConfig {
@@ -58,6 +72,13 @@ interface MarketplaceConfig {
   apiBaseUrl?: string;
   accountId: string;
   workspaceId?: string;
+}
+
+interface ReviewConfig {
+  apiBaseUrl?: string;
+  accountId: string;
+  workspaceId: string;
+  requiredApprovals?: number;
 }
 
 interface CliError {
@@ -102,6 +123,15 @@ function parseArgs(argv = process.argv.slice(2)): Record<string, ArgValue> {
 }
 
 function toCliArgs(parsed: Record<string, ArgValue>): CliArgs {
+  const reviewDecisionRaw = parsed['review-decision'];
+  const reviewDecision =
+    reviewDecisionRaw === 'approve' || reviewDecisionRaw === 'request_changes'
+      ? reviewDecisionRaw
+      : undefined;
+
+  const reviewCommentRaw = parsed['review-comment'];
+  const reviewComment = typeof reviewCommentRaw === 'string' ? reviewCommentRaw : undefined;
+
   return {
     briefPath: String(parsed.brief || 'examples/brief.cinematic-afterglow.json'),
     profilePath: String(parsed.profile || 'examples/profile.ljv-signal-core.json'),
@@ -109,10 +139,19 @@ function toCliArgs(parsed: Record<string, ArgValue>): CliArgs {
     exportBundle: Boolean(parsed.export),
     execute: Boolean(parsed.execute),
     providerConfigPath: String(parsed['provider-config'] || 'provider-config.json'),
+    policyTimeoutMs: parsed['policy-timeout'] ? Number(parsed['policy-timeout']) : undefined,
+    policyMaxRetries: parsed['policy-retries'] ? Number(parsed['policy-retries']) : undefined,
+    policyRetryDelayMs: parsed['policy-retry-delay'] ? Number(parsed['policy-retry-delay']) : undefined,
     publish: Boolean(parsed.publish),
     publishConfigPath: String(parsed['publish-config'] || 'publish-config.json'),
     installListingId: parsed['install-listing'] ? String(parsed['install-listing']) : undefined,
     marketplaceConfigPath: String(parsed['marketplace-config'] || 'marketplace-config.json'),
+    reviewConfigPath: String(parsed['review-config'] || 'review-config.json'),
+    reviewStart: Boolean(parsed['review-start']),
+    reviewStatus: Boolean(parsed['review-status']),
+    reviewComment,
+    reviewDecision,
+    reviewBundleId: parsed['review-bundle-id'] ? String(parsed['review-bundle-id']) : undefined,
     outputPath: parsed.output ? String(parsed.output) : undefined,
     showHelp: Boolean(parsed.help),
     prompt: parsed.prompt ? String(parsed.prompt) : undefined,
@@ -127,9 +166,10 @@ function printHelp(): void {
       '',
       'Usage:',
       '  prompt-compiler --brief <path> --profile <path> [--include-generic] [--export] [--output <path>]',
-      '  prompt-compiler --brief <path> --profile <path> --execute --provider-config <path> [--output <path>]',
+      '  prompt-compiler --brief <path> --profile <path> --execute --provider-config <path> [--policy-timeout <ms>] [--policy-retries <n>] [--policy-retry-delay <ms>] [--output <path>]',
       '  prompt-compiler --brief <path> --profile <path> --publish --publish-config <path> [--output <path>]',
       '  prompt-compiler --install-listing <id> [--marketplace-config <path>] [--output <path>]',
+      '  prompt-compiler --review-start [--review-status] [--review-comment <text>] [--review-decision <approve|request_changes>] [--review-config <path>] [--review-bundle-id <id>] [--brief <path> --profile <path>] [--output <path>]',
       '  prompt-compiler --prompt "<text>" [--auto-refine] [--output <path>]',
       '',
       'Options:',
@@ -140,15 +180,26 @@ function printHelp(): void {
       '  --auto-refine           When used with --prompt, auto-apply refinement hints.',
       '  --export                Write export bundle files into workspace.',
       '  --execute               Send one compiled output to provider via API /execute.',
-      '  --provider-config       Path to provider config JSON (default: provider-config.json).',
-      '  --publish               Submit compiled bundle to API /publish/jobs.',
+      '  --provider-config       Path to provider config JSON (default: provider-config.json).',  '  --policy-timeout        Execution timeout per attempt in milliseconds (overrides provider config).',
+  '  --policy-retries        Number of retries after first failed attempt (overrides provider config).',
+  '  --policy-retry-delay    Delay between retry attempts in milliseconds (overrides provider config).',      '  --publish               Submit compiled bundle to API /publish/jobs.',
       '  --publish-config        Path to publish config JSON (default: publish-config.json).',
       '  --install-listing       Install a marketplace listing by id via API /marketplace/install.',
       '  --marketplace-config    Path to marketplace config JSON (default: marketplace-config.json).',
+      '  --review-start          Create/reopen and submit bundle review via API review routes.',
+      '  --review-status         Fetch current review status for bundle/workspace scope.',
+      '  --review-comment        Add a review comment message to the bundle review trail.',
+      '  --review-decision       Submit review decision: approve or request_changes.',
+      '  --review-config         Path to review config JSON (default: review-config.json).',
+      '  --review-bundle-id      Explicit bundle id for review-only calls (skip compile).',
       '  --output, --o           Write command JSON response to file.',
       '  --help, --h             Show this help text.'
     ].join('\n')
   );
+}
+
+function createBundleId(brief: PromptBrief, result: { briefId: string; generatedAt: string }): string {
+  return `${result.briefId || brief.id}-${result.generatedAt.replace(/[:.]/g, '-')}`;
 }
 
 function writeExportPlan(files: { path: string; content: string }[]): void {
@@ -167,6 +218,23 @@ function writeResponse(response: CliResponse, outputPath?: string): void {
     fs.writeFileSync(resolvedPath, `${payload}\n`, 'utf8');
   }
   console.log(payload);
+}
+
+// P23: Format entitlement-aware error messages for the CLI.
+function formatEntitlementError(
+  featureKey?: string,
+  currentStatusText?: string
+): string {
+  if (!featureKey) {
+    return currentStatusText ?? 'Operation failed due to insufficient access.';
+  }
+
+  try {
+    const uxMsg = generateEntitlementUXMessage(featureKey as HostedFeatureKey);
+    return `${uxMsg.title}\n${uxMsg.message}${uxMsg.actionLabel ? `\n\nSuggestion: ${uxMsg.actionLabel}` : ''}`;
+  } catch {
+    return currentStatusText ?? 'Operation failed due to insufficient access.';
+  }
 }
 
 async function executeFromCompileResult(
@@ -192,8 +260,17 @@ async function executeFromCompileResult(
     throw new Error(`No compiled output found for target '${config.target}'.`);
   }
 
-  const bundleId = `${result.briefId || brief.id}-${result.generatedAt.replace(/[:.]/g, '-')}`;
+  const bundleId = createBundleId(brief, result);
   const apiBase = (config.apiBaseUrl ?? 'http://localhost:8787').replace(/\/$/, '');
+
+  // Build execution policy: CLI flags override provider config file values.
+  const mergedPolicy: { timeoutMs?: number; maxRetries?: number; retryDelayMs?: number } = {
+    ...config.policy
+  };
+  if (args.policyTimeoutMs !== undefined) mergedPolicy.timeoutMs = args.policyTimeoutMs;
+  if (args.policyMaxRetries !== undefined) mergedPolicy.maxRetries = args.policyMaxRetries;
+  if (args.policyRetryDelayMs !== undefined) mergedPolicy.retryDelayMs = args.policyRetryDelayMs;
+  const hasPolicy = Object.keys(mergedPolicy).length > 0;
 
   const executePayload = {
     content: selectedOutput.content,
@@ -205,7 +282,8 @@ async function executeFromCompileResult(
     temperature: config.temperature,
     plan: config.plan,
     mode: config.mode,
-    entitlements: config.entitlements
+    entitlements: config.entitlements,
+    ...(hasPolicy ? { policy: mergedPolicy } : {})
   };
 
   const response = await fetch(`${apiBase}/execute`, {
@@ -218,11 +296,17 @@ async function executeFromCompileResult(
   const payload = (await response.json()) as {
     ok?: boolean;
     result?: unknown;
-    error?: { message?: string };
+    error?: { message?: string; featureKey?: string };
   };
 
   if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error?.message ?? `Execution failed with status ${response.status}`);
+    // P23: Check for feature key and generate friendly message.
+    const featureKey = (payload.error as { featureKey?: string } | undefined)?.featureKey;
+    const friendlyMessage = formatEntitlementError(
+      featureKey,
+      payload.error?.message ?? `Execution failed with status ${response.status}`
+    );
+    throw new Error(friendlyMessage);
   }
 
   return payload.result;
@@ -242,7 +326,7 @@ async function publishFromCompileResult(
     throw new Error('Publish config must include target.id and target.kind.');
   }
 
-  const bundleId = `${result.briefId || brief.id}-${result.generatedAt.replace(/[:.]/g, '-')}`;
+  const bundleId = createBundleId(brief, result);
   const apiBase = (config.apiBaseUrl ?? 'http://localhost:8787').replace(/\/$/, '');
 
   const publishPayload = {
@@ -265,14 +349,142 @@ async function publishFromCompileResult(
   const payload = (await response.json()) as {
     ok?: boolean;
     result?: unknown;
-    error?: { message?: string };
+    error?: { message?: string; featureKey?: string };
   };
 
   if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error?.message ?? `Publish failed with status ${response.status}`);
+    // P23: Check for feature key and generate friendly message.
+    const featureKey = (payload.error as { featureKey?: string } | undefined)?.featureKey;
+    const friendlyMessage = formatEntitlementError(
+      featureKey,
+      payload.error?.message ?? `Publish failed with status ${response.status}`
+    );
+    throw new Error(friendlyMessage);
   }
 
   return payload.result;
+}
+
+async function runReviewActions(args: CliArgs, bundleId: string): Promise<Record<string, unknown>> {
+  const config = readJson<ReviewConfig>(args.reviewConfigPath);
+  if (!config.accountId || !config.workspaceId) {
+    throw new Error('Review config must include accountId and workspaceId.');
+  }
+
+  if (args.reviewDecision && args.reviewDecision !== 'approve' && args.reviewDecision !== 'request_changes') {
+    throw new Error('review-decision must be either approve or request_changes.');
+  }
+
+  const apiBase = (config.apiBaseUrl ?? 'http://localhost:8787').replace(/\/$/, '');
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-account-id': config.accountId,
+    'x-workspace-id': config.workspaceId
+  };
+
+  const reviewResult: Record<string, unknown> = {};
+
+  if (args.reviewStart) {
+    const createResponse = await fetch(`${apiBase}/reviews/bundles`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        bundleId,
+        workspaceId: config.workspaceId,
+        ...(Number.isInteger(config.requiredApprovals) ? { requiredApprovals: config.requiredApprovals } : {})
+      }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const createPayload = (await createResponse.json()) as {
+      ok?: boolean;
+      result?: unknown;
+      error?: { message?: string };
+    };
+    if (!createResponse.ok || createPayload.ok === false) {
+      throw new Error(createPayload.error?.message ?? `Review start failed with status ${createResponse.status}`);
+    }
+    reviewResult.start = createPayload.result;
+
+    const submitResponse = await fetch(`${apiBase}/reviews/bundles/${encodeURIComponent(bundleId)}/submit`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ workspaceId: config.workspaceId }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const submitPayload = (await submitResponse.json()) as {
+      ok?: boolean;
+      result?: unknown;
+      error?: { message?: string };
+    };
+    if (!submitResponse.ok || submitPayload.ok === false) {
+      throw new Error(submitPayload.error?.message ?? `Review submit failed with status ${submitResponse.status}`);
+    }
+    reviewResult.submit = submitPayload.result;
+  }
+
+  if (args.reviewComment) {
+    const commentResponse = await fetch(`${apiBase}/reviews/bundles/${encodeURIComponent(bundleId)}/comments`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        workspaceId: config.workspaceId,
+        message: args.reviewComment
+      }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const commentPayload = (await commentResponse.json()) as {
+      ok?: boolean;
+      result?: unknown;
+      error?: { message?: string };
+    };
+    if (!commentResponse.ok || commentPayload.ok === false) {
+      throw new Error(commentPayload.error?.message ?? `Review comment failed with status ${commentResponse.status}`);
+    }
+    reviewResult.comment = commentPayload.result;
+  }
+
+  if (args.reviewDecision) {
+    const decisionResponse = await fetch(`${apiBase}/reviews/bundles/${encodeURIComponent(bundleId)}/decisions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        workspaceId: config.workspaceId,
+        decision: args.reviewDecision
+      }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const decisionPayload = (await decisionResponse.json()) as {
+      ok?: boolean;
+      result?: unknown;
+      error?: { message?: string };
+    };
+    if (!decisionResponse.ok || decisionPayload.ok === false) {
+      throw new Error(decisionPayload.error?.message ?? `Review decision failed with status ${decisionResponse.status}`);
+    }
+    reviewResult.decision = decisionPayload.result;
+  }
+
+  if (args.reviewStatus || args.reviewStart || Boolean(args.reviewComment) || Boolean(args.reviewDecision)) {
+    const statusResponse = await fetch(
+      `${apiBase}/reviews/bundles/${encodeURIComponent(bundleId)}?workspaceId=${encodeURIComponent(config.workspaceId)}`,
+      {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(10000)
+      }
+    );
+    const statusPayload = (await statusResponse.json()) as {
+      ok?: boolean;
+      result?: unknown;
+      error?: { message?: string };
+    };
+    if (!statusResponse.ok || statusPayload.ok === false) {
+      throw new Error(statusPayload.error?.message ?? `Review status failed with status ${statusResponse.status}`);
+    }
+    reviewResult.status = statusPayload.result;
+  }
+
+  return reviewResult;
 }
 
 async function installMarketplaceListing(args: CliArgs): Promise<unknown> {
@@ -300,11 +512,17 @@ async function installMarketplaceListing(args: CliArgs): Promise<unknown> {
   const payload = (await response.json()) as {
     ok?: boolean;
     result?: unknown;
-    error?: { message?: string };
+    error?: { message?: string; featureKey?: string };
   };
 
   if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error?.message ?? `Install listing failed with status ${response.status}`);
+    // P23: Check for feature key and generate friendly message.
+    const featureKey = (payload.error as { featureKey?: string } | undefined)?.featureKey;
+    const friendlyMessage = formatEntitlementError(
+      featureKey,
+      payload.error?.message ?? `Install listing failed with status ${response.status}`
+    );
+    throw new Error(friendlyMessage);
   }
 
   return payload.result;
@@ -312,6 +530,8 @@ async function installMarketplaceListing(args: CliArgs): Promise<unknown> {
 
 async function main(): Promise<number> {
   const args = toCliArgs(parseArgs());
+  const wantsReviewActions =
+    args.reviewStart || args.reviewStatus || Boolean(args.reviewComment) || Boolean(args.reviewDecision);
 
   if (args.showHelp) {
     printHelp();
@@ -325,6 +545,18 @@ async function main(): Promise<number> {
       return 0;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown install-listing error';
+      writeResponse({ ok: false, error: { code: 'SERVER_ERROR', message } }, args.outputPath);
+      return 1;
+    }
+  }
+
+  if (wantsReviewActions && args.reviewBundleId) {
+    try {
+      const review = await runReviewActions(args, args.reviewBundleId);
+      writeResponse({ ok: true, result: { bundleId: args.reviewBundleId, review } }, args.outputPath);
+      return 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown review lifecycle error';
       writeResponse({ ok: false, error: { code: 'SERVER_ERROR', message } }, args.outputPath);
       return 1;
     }
@@ -388,14 +620,21 @@ async function main(): Promise<number> {
       publishResult = await publishFromCompileResult(args, brief, result);
     }
 
+    let reviewResult: Record<string, unknown> | undefined;
+    if (wantsReviewActions) {
+      const bundleId = args.reviewBundleId ?? createBundleId(brief, result);
+      reviewResult = await runReviewActions(args, bundleId);
+    }
+
     writeResponse(
       {
         ok: true,
-        result: args.execute || args.publish
+        result: args.execute || args.publish || wantsReviewActions
           ? {
               compilation: result,
               ...(args.execute ? { execution: executionResult } : {}),
-              ...(args.publish ? { publish: publishResult } : {})
+              ...(args.publish ? { publish: publishResult } : {}),
+              ...(wantsReviewActions ? { review: reviewResult } : {})
             }
           : result
       },

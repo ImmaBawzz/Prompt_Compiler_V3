@@ -198,6 +198,28 @@ describe('validateExecutionRequest', () => {
     const result = validateExecutionRequest({ ...validRequest, temperature: 3 });
     assert.equal(result.valid, false);
   });
+
+  test('accepts execution policy with timeout/retry fields', () => {
+    const result = validateExecutionRequest({
+      ...validRequest,
+      policy: {
+        timeoutMs: 15000,
+        maxRetries: 2,
+        retryDelayMs: 300
+      }
+    });
+    assert.equal(result.valid, true);
+  });
+
+  test('rejects execution policy with invalid negative timeout', () => {
+    const result = validateExecutionRequest({
+      ...validRequest,
+      policy: {
+        timeoutMs: -1
+      }
+    });
+    assert.equal(result.valid, false);
+  });
 });
 
 // ---------------------------------------------------------------------------

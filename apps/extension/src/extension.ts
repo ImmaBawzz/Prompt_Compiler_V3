@@ -1,13 +1,16 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
-import { compilePromptBundle, createExportPlan, deriveRefinementHints, refinePromptBundle, autoCompile, BrandProfile, PromptBrief, RefinementHint } from '@prompt-compiler/core';
+import { compilePromptBundle, createExportPlan, deriveRefinementHints, refinePromptBundle, autoCompile, BrandProfile, PromptBrief, RefinementHint, generateEntitlementUXMessage, HostedFeatureKey } from '@prompt-compiler/core';
 import { ArtifactExplorerProvider } from './artifactExplorer';
 import { AccountPlan, entitlementsForPlan, safeParseState } from './hostedSync';
+import { parseStoredReviewArtifact, reviewArtifactName } from './reviewFiles';
 import { getStudioHtml } from './studioHtml';
 
 const LAST_BRIEF_KEY = 'promptCompiler.lastBrief';
 const LAST_PROFILE_KEY = 'promptCompiler.lastProfile';
-const DEFAULT_HOSTED_API_BASE = 'http://localhost:8788';
+const LAST_REVIEW_ACCOUNT_KEY = 'promptCompiler.lastReviewAccount';
+const LAST_REVIEW_WORKSPACE_KEY = 'promptCompiler.lastReviewWorkspace';
+const DEFAULT_HOSTED_API_BASE = 'http://localhost:8787';
 
 const DEFAULT_BRIEF = {
   id: 'brief-local-example',
@@ -37,7 +40,27 @@ function hostedApiBase(): string {
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
-  const payload = (await response.json()) as T & { ok?: boolean; error?: { message?: string } };
+  const payload = (await response.json()) as T & { ok?: boolean; error?: { message?: string; featureKey?: string } };
+
+  // P23: Check for entitlement errors and generate UX-friendly messages.
+  if (
+    !response.ok &&
+    payload.error &&
+    response.status === 403 &&
+    (payload.error as { featureKey?: string }).featureKey
+  ) {
+    const featureKey = (payload.error as { featureKey?: string }).featureKey as HostedFeatureKey;
+    const uxMsg = generateEntitlementUXMessage(featureKey, undefined);
+    const action = await vscode.window.showErrorMessage(
+      uxMsg.message,
+      uxMsg.actionLabel ?? 'Upgrade'
+    );
+    if (action && uxMsg.upgradeUrl) {
+      vscode.env.openExternal(vscode.Uri.parse(uxMsg.upgradeUrl));
+    }
+    throw new Error(uxMsg.title);
+  }
+
   if (!response.ok || (payload.ok === false && payload.error?.message)) {
     const message = payload.error?.message ?? `Request failed with status ${response.status}`;
     throw new Error(message);
@@ -203,6 +226,51 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
 
+        // P25-5: Optional execution policy configuration.
+        const policyChoice = await vscode.window.showQuickPick(
+          [
+            { label: 'Use default policy', description: 'No timeout/retry overrides', value: 'default' as const },
+            { label: 'Configure policy', description: 'Set timeout, retries, and retry delay', value: 'configure' as const }
+          ],
+          { title: 'Execution Policy', placeHolder: 'Choose execution policy' }
+        );
+        if (!policyChoice) {
+          return;
+        }
+
+        let executionPolicy: { timeoutMs?: number; maxRetries?: number; retryDelayMs?: number } | undefined;
+        if (policyChoice.value === 'configure') {
+          const timeoutInput = await vscode.window.showInputBox({
+            title: 'Execution Policy — Timeout',
+            prompt: 'Request timeout per attempt in milliseconds (leave blank for default 30000)',
+            placeHolder: '30000',
+            validateInput: (v) => (v && !/^\d+$/.test(v) ? 'Must be a positive integer' : null)
+          });
+          if (timeoutInput === undefined) return;
+
+          const retriesInput = await vscode.window.showInputBox({
+            title: 'Execution Policy — Max Retries',
+            prompt: 'Number of retries after first failed attempt (leave blank for default 0)',
+            placeHolder: '0',
+            validateInput: (v) => (v && !/^\d+$/.test(v) ? 'Must be a non-negative integer' : null)
+          });
+          if (retriesInput === undefined) return;
+
+          const retryDelayInput = await vscode.window.showInputBox({
+            title: 'Execution Policy — Retry Delay',
+            prompt: 'Delay between retry attempts in milliseconds (leave blank for default 250)',
+            placeHolder: '250',
+            validateInput: (v) => (v && !/^\d+$/.test(v) ? 'Must be a non-negative integer' : null)
+          });
+          if (retryDelayInput === undefined) return;
+
+          const policy: { timeoutMs?: number; maxRetries?: number; retryDelayMs?: number } = {};
+          if (timeoutInput) policy.timeoutMs = Number(timeoutInput);
+          if (retriesInput) policy.maxRetries = Number(retriesInput);
+          if (retryDelayInput) policy.retryDelayMs = Number(retryDelayInput);
+          if (Object.keys(policy).length > 0) executionPolicy = policy;
+        }
+
         const bundleId = path.basename(exportFolder.fsPath);
         const requestPayload: {
           content: string;
@@ -216,6 +284,7 @@ export function activate(context: vscode.ExtensionContext): void {
             model?: string;
             apiKey?: string;
           };
+          policy?: { timeoutMs?: number; maxRetries?: number; retryDelayMs?: number };
           plan?: 'studio';
           mode?: 'hosted';
           entitlements?: string[];
@@ -224,7 +293,8 @@ export function activate(context: vscode.ExtensionContext): void {
           target: selectedOutputPick.output.target,
           bundleId,
           profileId: bundle.profileId,
-          provider
+          provider,
+          ...(executionPolicy ? { policy: executionPolicy } : {})
         };
 
         if (provider.type === 'openai-compatible') {
@@ -257,7 +327,8 @@ export function activate(context: vscode.ExtensionContext): void {
             target: selectedOutputPick.output.target,
             bundleId,
             profileId: bundle.profileId,
-            provider
+            provider,
+            ...(executionPolicy ? { policy: executionPolicy } : {})
           },
           result: executionResponse.result
         };
@@ -342,9 +413,19 @@ export function activate(context: vscode.ExtensionContext): void {
         }
 
         const bundleId = path.basename(exportFolder.fsPath);
+        let reviewContext: { accountId: string; workspaceId: string } | null = null;
+
+        if (publishMode.value === 'webhook') {
+          reviewContext = await resolveReviewContext(context, exportFolder, bundleId);
+          if (!reviewContext) {
+            return;
+          }
+        }
+
         const publishPayload = {
           bundleId,
           profileId: bundle.profileId,
+          workspaceId: reviewContext?.workspaceId,
           target,
           publishPayload: {
             source: 'vscode-extension',
@@ -361,7 +442,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const base = hostedApiBase();
         const publishResponse = await fetchJson<{ ok: true; result: { jobId: string; status: string; updatedAt: string } }>(`${base}/publish/jobs`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: reviewHeaders(reviewContext),
           body: JSON.stringify(publishPayload)
         });
 
@@ -384,10 +465,167 @@ export function activate(context: vscode.ExtensionContext): void {
         );
 
         artifactExplorer.addArtifact(publishFile);
+
+        if (reviewContext) {
+          await refreshReviewArtifact(base, exportFolder, bundleId, reviewContext, artifactExplorer);
+        }
+
         void vscode.window.showInformationMessage(`Publish job '${publishResponse.result.jobId}' created with status '${publishResponse.result.status}'.`);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown publish error';
         void vscode.window.showErrorMessage(`Publish Bundle failed: ${message}`);
+      }
+    }),
+    vscode.commands.registerCommand('promptCompiler.startBundleReview', async (item?: { resourceUri?: vscode.Uri; uri?: vscode.Uri }) => {
+      try {
+        const exportFolder = resolveExportFolderFromItem(item, artifactExplorer);
+        if (!exportFolder) {
+          throw new Error('No export folder found. Export a bundle first or run this command from an artifact item.');
+        }
+
+        const bundleId = path.basename(exportFolder.fsPath);
+        const reviewContext = await resolveReviewContext(context, exportFolder, bundleId);
+        if (!reviewContext) {
+          return;
+        }
+
+        const requiredApprovalsRaw = await vscode.window.showInputBox({
+          title: 'Required Approvals',
+          prompt: 'Number of approvals required before live publish',
+          value: '1',
+          validateInput: (value) => (/^[1-9]\d*$/.test(value.trim()) ? undefined : 'Enter an integer greater than or equal to 1.')
+        });
+        if (!requiredApprovalsRaw) {
+          return;
+        }
+
+        const base = hostedApiBase();
+        await fetchJson<{ ok: true; result: unknown }>(`${base}/reviews/bundles`, {
+          method: 'POST',
+          headers: reviewHeaders(reviewContext),
+          body: JSON.stringify({
+            bundleId,
+            workspaceId: reviewContext.workspaceId,
+            requiredApprovals: Number(requiredApprovalsRaw)
+          })
+        });
+
+        const submitResponse = await fetchJson<{ ok: true; result: unknown }>(`${base}/reviews/bundles/${encodeURIComponent(bundleId)}/submit`, {
+          method: 'POST',
+          headers: reviewHeaders(reviewContext),
+          body: JSON.stringify({ workspaceId: reviewContext.workspaceId })
+        });
+
+        await persistReviewArtifact(exportFolder, bundleId, submitResponse.result, artifactExplorer);
+        void vscode.window.showInformationMessage(`Bundle review started for '${bundleId}'.`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown review start error';
+        void vscode.window.showErrorMessage(`Start Bundle Review failed: ${message}`);
+      }
+    }),
+    vscode.commands.registerCommand('promptCompiler.showBundleReviewStatus', async (item?: { resourceUri?: vscode.Uri; uri?: vscode.Uri }) => {
+      try {
+        const exportFolder = resolveExportFolderFromItem(item, artifactExplorer);
+        if (!exportFolder) {
+          throw new Error('No export folder found. Export a bundle first or run this command from an artifact item.');
+        }
+
+        const bundleId = path.basename(exportFolder.fsPath);
+        const reviewContext = await resolveReviewContext(context, exportFolder, bundleId);
+        if (!reviewContext) {
+          return;
+        }
+
+        const review = await refreshReviewArtifact(hostedApiBase(), exportFolder, bundleId, reviewContext, artifactExplorer);
+        void vscode.window.showInformationMessage(`Bundle '${bundleId}' review status: ${String((review as { status?: string }).status ?? 'unknown')}.`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown review status error';
+        void vscode.window.showErrorMessage(`Show Bundle Review Status failed: ${message}`);
+      }
+    }),
+    vscode.commands.registerCommand('promptCompiler.addBundleReviewComment', async (item?: { resourceUri?: vscode.Uri; uri?: vscode.Uri }) => {
+      try {
+        const exportFolder = resolveExportFolderFromItem(item, artifactExplorer);
+        if (!exportFolder) {
+          throw new Error('No export folder found. Export a bundle first or run this command from an artifact item.');
+        }
+
+        const bundleId = path.basename(exportFolder.fsPath);
+        const reviewContext = await resolveReviewContext(context, exportFolder, bundleId);
+        if (!reviewContext) {
+          return;
+        }
+
+        const message = await vscode.window.showInputBox({
+          title: 'Review Comment',
+          prompt: 'Comment to append to the bundle review trail'
+        });
+        if (!message) {
+          return;
+        }
+
+        const base = hostedApiBase();
+        const response = await fetchJson<{ ok: true; result: unknown }>(`${base}/reviews/bundles/${encodeURIComponent(bundleId)}/comments`, {
+          method: 'POST',
+          headers: reviewHeaders(reviewContext),
+          body: JSON.stringify({ workspaceId: reviewContext.workspaceId, message })
+        });
+
+        await persistReviewArtifact(exportFolder, bundleId, response.result, artifactExplorer);
+        void vscode.window.showInformationMessage(`Review comment added to '${bundleId}'.`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown review comment error';
+        void vscode.window.showErrorMessage(`Add Bundle Review Comment failed: ${message}`);
+      }
+    }),
+    vscode.commands.registerCommand('promptCompiler.reviewBundleDecision', async (item?: { resourceUri?: vscode.Uri; uri?: vscode.Uri }) => {
+      try {
+        const exportFolder = resolveExportFolderFromItem(item, artifactExplorer);
+        if (!exportFolder) {
+          throw new Error('No export folder found. Export a bundle first or run this command from an artifact item.');
+        }
+
+        const bundleId = path.basename(exportFolder.fsPath);
+        const reviewContext = await resolveReviewContext(context, exportFolder, bundleId);
+        if (!reviewContext) {
+          return;
+        }
+
+        const decisionPick = await vscode.window.showQuickPick(
+          [
+            { label: 'Approve Bundle', value: 'approve' as const },
+            { label: 'Request Changes', value: 'request_changes' as const }
+          ],
+          {
+            title: 'Review Decision',
+            placeHolder: 'Choose approval decision'
+          }
+        );
+        if (!decisionPick) {
+          return;
+        }
+
+        const comment = await vscode.window.showInputBox({
+          title: 'Decision Comment (Optional)',
+          prompt: 'Optional rationale for this approval decision'
+        });
+
+        const base = hostedApiBase();
+        const response = await fetchJson<{ ok: true; result: unknown }>(`${base}/reviews/bundles/${encodeURIComponent(bundleId)}/decisions`, {
+          method: 'POST',
+          headers: reviewHeaders(reviewContext),
+          body: JSON.stringify({
+            workspaceId: reviewContext.workspaceId,
+            decision: decisionPick.value,
+            ...(comment ? { comment } : {})
+          })
+        });
+
+        await persistReviewArtifact(exportFolder, bundleId, response.result, artifactExplorer);
+        void vscode.window.showInformationMessage(`Bundle '${bundleId}' decision recorded: ${decisionPick.value}.`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown review decision error';
+        void vscode.window.showErrorMessage(`Review Bundle Decision failed: ${message}`);
       }
     }),
     vscode.commands.registerCommand('promptCompiler.showFeedbackAggregate', async (item?: { resourceUri?: vscode.Uri; uri?: vscode.Uri }) => {
@@ -707,6 +945,105 @@ async function openStudio(context: vscode.ExtensionContext, artifactExplorer: Ar
       }
     }
   });
+}
+
+function resolveExportFolderFromItem(
+  item: { resourceUri?: vscode.Uri; uri?: vscode.Uri } | undefined,
+  artifactExplorer: ArtifactExplorerProvider
+): vscode.Uri | undefined {
+  const selectedUri = item?.resourceUri ?? item?.uri;
+  return inferExportFolderFromArtifact(selectedUri) ?? artifactExplorer.getLatestExportFolder();
+}
+
+function reviewHeaders(contextPayload: { accountId: string; workspaceId: string } | null): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    ...(contextPayload
+      ? {
+          'x-account-id': contextPayload.accountId,
+          'x-workspace-id': contextPayload.workspaceId
+        }
+      : {})
+  };
+}
+
+async function resolveReviewContext(
+  context: vscode.ExtensionContext,
+  exportFolder: vscode.Uri,
+  bundleId: string
+): Promise<{ accountId: string; workspaceId: string } | null> {
+  const storedReview = await readStoredReviewArtifact(exportFolder, bundleId);
+  const lastAccountId = context.workspaceState.get<string>(LAST_REVIEW_ACCOUNT_KEY) ?? 'acct-owner';
+  const lastWorkspaceId =
+    storedReview?.workspaceId ?? context.workspaceState.get<string>(LAST_REVIEW_WORKSPACE_KEY) ?? 'workspace-local';
+
+  const accountId = await vscode.window.showInputBox({
+    title: 'Review Account ID',
+    prompt: 'Account identity used for workspace review actions',
+    value: lastAccountId
+  });
+  if (!accountId) {
+    return null;
+  }
+
+  const workspaceId = await vscode.window.showInputBox({
+    title: 'Review Workspace ID',
+    prompt: 'Workspace scope for this bundle review',
+    value: lastWorkspaceId
+  });
+  if (!workspaceId) {
+    return null;
+  }
+
+  await context.workspaceState.update(LAST_REVIEW_ACCOUNT_KEY, accountId);
+  await context.workspaceState.update(LAST_REVIEW_WORKSPACE_KEY, workspaceId);
+  return { accountId, workspaceId };
+}
+
+function reviewArtifactUri(exportFolder: vscode.Uri, bundleId: string): vscode.Uri {
+  return vscode.Uri.joinPath(exportFolder, 'reviews', reviewArtifactName(bundleId));
+}
+
+async function readStoredReviewArtifact(
+  exportFolder: vscode.Uri,
+  bundleId: string
+): Promise<{ workspaceId?: string; status?: string } | undefined> {
+  try {
+    const raw = await vscode.workspace.fs.readFile(reviewArtifactUri(exportFolder, bundleId));
+    return parseStoredReviewArtifact(Buffer.from(raw).toString('utf8'));
+  } catch {
+    return undefined;
+  }
+}
+
+async function persistReviewArtifact(
+  exportFolder: vscode.Uri,
+  bundleId: string,
+  reviewPayload: unknown,
+  artifactExplorer: ArtifactExplorerProvider
+): Promise<vscode.Uri> {
+  const target = reviewArtifactUri(exportFolder, bundleId);
+  await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(exportFolder, 'reviews'));
+  await vscode.workspace.fs.writeFile(target, Buffer.from(`${JSON.stringify(reviewPayload, null, 2)}\n`, 'utf8'));
+  artifactExplorer.addArtifact(target);
+  return target;
+}
+
+async function refreshReviewArtifact(
+  baseUrl: string,
+  exportFolder: vscode.Uri,
+  bundleId: string,
+  reviewContext: { accountId: string; workspaceId: string },
+  artifactExplorer: ArtifactExplorerProvider
+): Promise<unknown> {
+  const response = await fetchJson<{ ok: true; result: unknown }>(
+    `${baseUrl}/reviews/bundles/${encodeURIComponent(bundleId)}?workspaceId=${encodeURIComponent(reviewContext.workspaceId)}`,
+    {
+      headers: reviewHeaders(reviewContext)
+    }
+  );
+  await persistReviewArtifact(exportFolder, bundleId, response.result, artifactExplorer);
+  return response.result;
 }
 
 function inferExportFolderFromArtifact(artifactUri: vscode.Uri | undefined): vscode.Uri | undefined {

@@ -319,22 +319,40 @@ export interface AutoCompileResult {
   refinedBundle?: CompilationBundle;
 }
 
-// --- Provider Execution Bridge (Phase 14) ---
+// --- Provider Execution Bridge (Phase 14 & Phase 24) ---
 
-export type ProviderTargetType = 'openai-compatible' | 'dry-run';
+/**
+ * Provider types supported for live execution.
+ * - 'openai-compatible': OpenAI API or OpenAI-compatible endpoint (Claude, etc.)
+ * - 'suno': Suno API for music/audio generation
+ * - 'udio': Udio API for music/audio generation
+ * - 'flux': FLUX API for image generation
+ * - 'kling': Kling API for video generation
+ * - 'dry-run': No network call; returns token estimate only
+ */
+export type ProviderTargetType = 'openai-compatible' | 'suno' | 'udio' | 'flux' | 'kling' | 'dry-run';
 
 export interface ProviderTarget {
   /** Unique identifier for this provider config. */
   id: string;
   type: ProviderTargetType;
-  /** Base URL for the API (e.g. https://api.openai.com/v1). Required for openai-compatible. */
+  /** Base URL for the API endpoint. Required for openai-compatible and providers that need it. */
   baseUrl?: string;
-  /** Model identifier to request (e.g. gpt-4o). */
+  /** Model/version identifier (e.g. 'gpt-4o', 'suno-v4'). */
   model?: string;
-  /** API key — passed as Bearer token. Omit to use env var PROVIDER_API_KEY. */
+  /** API key — passed as Bearer token or custom auth header. Omit to use PROVIDER_API_KEY env var. */
   apiKey?: string;
   /** Extra headers to merge into the request. */
   headers?: Record<string, string>;
+}
+
+export interface ExecutionPolicy {
+  /** Request timeout per attempt in milliseconds. Defaults to 30000. */
+  timeoutMs?: number;
+  /** Number of retries after the first failed attempt. Defaults to 0. */
+  maxRetries?: number;
+  /** Delay between retry attempts in milliseconds. Defaults to 250. */
+  retryDelayMs?: number;
 }
 
 export interface ExecutionRequest {
@@ -352,6 +370,8 @@ export interface ExecutionRequest {
   maxTokens?: number;
   /** Temperature for provider call. Defaults to 0.7. */
   temperature?: number;
+  /** Optional network execution policy (timeouts + retry behavior). */
+  policy?: ExecutionPolicy;
 }
 
 export interface ExecutionResult {
@@ -442,6 +462,7 @@ export interface PublishJob {
   jobId: string;
   bundleId: string;
   profileId: string;
+  workspaceId?: string;
   target: PublishTarget;
   status: PublishJobStatus;
   createdAt: string;
@@ -460,8 +481,130 @@ export interface CreatePublishJobInput {
   jobId?: string;
   bundleId: string;
   profileId: string;
+  workspaceId?: string;
   target: PublishTarget;
   createdAt?: string;
+}
+
+// --- Review, Approval, and Team Workflow Layer (Phase 21) ---
+
+export type BundleReviewStatus = 'draft' | 'in_review' | 'changes_requested' | 'approved' | 'published';
+
+export type BundleReviewDecisionType = 'approve' | 'request_changes';
+
+export interface BundleReviewComment {
+  commentId: string;
+  bundleId: string;
+  workspaceId: string;
+  authorAccountId: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface BundleReviewDecision {
+  decisionId: string;
+  bundleId: string;
+  workspaceId: string;
+  reviewerAccountId: string;
+  decision: BundleReviewDecisionType;
+  comment?: string;
+  createdAt: string;
+}
+
+export interface BundleReviewRecord {
+  bundleId: string;
+  workspaceId: string;
+  createdBy: string;
+  status: BundleReviewStatus;
+  requiredApprovals: number;
+  comments: BundleReviewComment[];
+  decisions: BundleReviewDecision[];
+  createdAt: string;
+  updatedAt: string;
+  submittedAt?: string;
+  approvedAt?: string;
+  publishedAt?: string;
+}
+
+export interface CreateBundleReviewInput {
+  bundleId: string;
+  workspaceId: string;
+  createdBy: string;
+  requiredApprovals?: number;
+  createdAt?: string;
+}
+
+export interface CreateBundleReviewCommentInput {
+  commentId?: string;
+  authorAccountId: string;
+  message: string;
+  createdAt?: string;
+}
+
+export interface CreateBundleReviewDecisionInput {
+  decisionId?: string;
+  reviewerAccountId: string;
+  decision: BundleReviewDecisionType;
+  comment?: string;
+  createdAt?: string;
+}
+
+// --- Commercial Readiness Layer (Phase 22) ---
+
+export type UsageMeteringDomain = 'execute' | 'publish' | 'marketplace-install';
+
+export type UsageMeteringUnit = 'request' | 'token';
+
+export interface UsageMeteringEvent {
+  eventId: string;
+  accountId: string;
+  workspaceId?: string;
+  domain: UsageMeteringDomain;
+  action: string;
+  unitsConsumed: number;
+  unit: UsageMeteringUnit;
+  bundleId?: string;
+  profileId?: string;
+  listingId?: string;
+  plan?: AccountPlan;
+  mode?: AccessMode;
+  entitlements?: EntitlementKey[];
+  occurredAt: string;
+  metadata?: Record<string, string | number | boolean>;
+}
+
+export interface CreateUsageMeteringEventInput {
+  eventId?: string;
+  accountId: string;
+  workspaceId?: string;
+  domain: UsageMeteringDomain;
+  action: string;
+  unitsConsumed?: number;
+  unit?: UsageMeteringUnit;
+  bundleId?: string;
+  profileId?: string;
+  listingId?: string;
+  plan?: AccountPlan;
+  mode?: AccessMode;
+  entitlements?: EntitlementKey[];
+  occurredAt?: string;
+  metadata?: Record<string, string | number | boolean>;
+}
+
+export interface UsageMeteringEventFilter {
+  workspaceId?: string;
+  domain?: UsageMeteringDomain;
+  unit?: UsageMeteringUnit;
+  from?: string;
+  to?: string;
+}
+
+export interface UsageAccountSummary {
+  accountId: string;
+  totalEvents: number;
+  totalsByDomain: Record<UsageMeteringDomain, number>;
+  totalsByUnit: Record<UsageMeteringUnit, number>;
+  mostRecentEventAt?: string;
 }
 
 // --- Profile Marketplace (Phase 17) ---

@@ -163,6 +163,82 @@ test('CLI execute flag posts selected output to /execute using provider config',
   assert.equal(payload.result?.execution?.target, 'suno');
 });
 
+test('CLI --policy-timeout/retries/retry-delay flags are forwarded in execute payload', async () => {
+  let capturedBody: Record<string, unknown> = {};
+
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/execute') {
+      let raw = '';
+      req.on('data', (chunk) => {
+        raw += String(chunk);
+      });
+      req.on('end', () => {
+        capturedBody = JSON.parse(raw) as Record<string, unknown>;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            result: {
+              requestId: 'req-policy',
+              provider: 'dry-run',
+              target: 'suno',
+              echoedLength: 0,
+              executedAt: '2026-04-12T00:00:00.000Z'
+            }
+          })
+        );
+      });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const port = (server.address() as AddressInfo).port;
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-compiler-cli-policy-'));
+  const outputPath = path.join(tempDir, 'result.json');
+  const providerConfigPath = path.join(tempDir, 'provider-config.json');
+  const briefPath = path.resolve(process.cwd(), '../../examples/brief.cinematic-afterglow.json');
+  const profilePath = path.resolve(process.cwd(), '../../examples/profile.ljv-signal-core.json');
+
+  fs.writeFileSync(
+    providerConfigPath,
+    JSON.stringify(
+      {
+        apiBaseUrl: `http://127.0.0.1:${port}`,
+        provider: { id: 'local-dry', type: 'dry-run' },
+        target: 'suno'
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
+
+  const run = await runCliAsync([
+    '--brief', briefPath,
+    '--profile', profilePath,
+    '--execute',
+    '--provider-config', providerConfigPath,
+    '--policy-timeout', '5000',
+    '--policy-retries', '2',
+    '--policy-retry-delay', '100',
+    '--output', outputPath
+  ]);
+
+  await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+
+  assert.equal(run.status, 0, `expected exit code 0, got ${run.status}\nstdout:${run.stdout}\nstderr:${run.stderr}`);
+
+  const policy = capturedBody.policy as { timeoutMs?: number; maxRetries?: number; retryDelayMs?: number } | undefined;
+  assert.ok(policy, 'expected policy to be present in execute payload');
+  assert.equal(policy?.timeoutMs, 5000, 'expected timeoutMs from --policy-timeout');
+  assert.equal(policy?.maxRetries, 2, 'expected maxRetries from --policy-retries');
+  assert.equal(policy?.retryDelayMs, 100, 'expected retryDelayMs from --policy-retry-delay');
+});
+
 test('CLI publish flag posts bundle to /publish/jobs using publish config', async () => {
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/publish/jobs') {
@@ -318,4 +394,212 @@ test('CLI install-listing posts to /marketplace/install using marketplace config
   assert.equal(payload.ok, true);
   assert.equal(payload.result?.installed, true);
   assert.equal(payload.result?.listingId, 'listing-123');
+});
+
+test('CLI review-start and review-status execute review lifecycle against API', async () => {
+  const reviews = new Map<string, { bundleId: string; workspaceId: string; status: string }>();
+
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+
+    if (req.method === 'POST' && url.pathname === '/reviews/bundles') {
+      let raw = '';
+      req.on('data', (chunk) => {
+        raw += String(chunk);
+      });
+      req.on('end', () => {
+        const body = JSON.parse(raw) as { bundleId: string; workspaceId: string };
+        const record = { bundleId: body.bundleId, workspaceId: body.workspaceId, status: 'draft' };
+        reviews.set(body.bundleId, record);
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, result: record }));
+      });
+      return;
+    }
+
+    const submitMatch = url.pathname.match(/^\/reviews\/bundles\/([^/]+)\/submit$/);
+    if (req.method === 'POST' && submitMatch) {
+      const bundleId = decodeURIComponent(submitMatch[1]);
+      const existing = reviews.get(bundleId) ?? { bundleId, workspaceId: 'ws-review', status: 'draft' };
+      const next = { ...existing, status: 'in_review' };
+      reviews.set(bundleId, next);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, result: next }));
+      return;
+    }
+
+    const statusMatch = url.pathname.match(/^\/reviews\/bundles\/([^/]+)$/);
+    if (req.method === 'GET' && statusMatch) {
+      const bundleId = decodeURIComponent(statusMatch[1]);
+      const existing = reviews.get(bundleId) ?? { bundleId, workspaceId: 'ws-review', status: 'in_review' };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, result: existing }));
+      return;
+    }
+
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const port = (server.address() as AddressInfo).port;
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-compiler-cli-review-'));
+  const outputPath = path.join(tempDir, 'result.json');
+  const reviewConfigPath = path.join(tempDir, 'review-config.json');
+  const briefPath = path.resolve(process.cwd(), '../../examples/brief.cinematic-afterglow.json');
+  const profilePath = path.resolve(process.cwd(), '../../examples/profile.ljv-signal-core.json');
+
+  fs.writeFileSync(
+    reviewConfigPath,
+    JSON.stringify(
+      {
+        apiBaseUrl: `http://127.0.0.1:${port}`,
+        accountId: 'acct-reviewer',
+        workspaceId: 'ws-review',
+        requiredApprovals: 2
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
+
+  const run = await runCliAsync([
+    '--brief',
+    briefPath,
+    '--profile',
+    profilePath,
+    '--review-start',
+    '--review-status',
+    '--review-config',
+    reviewConfigPath,
+    '--output',
+    outputPath
+  ]);
+
+  await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+
+  assert.equal(run.status, 0, `expected exit code 0, got ${run.status} with stdout: ${run.stdout} stderr: ${run.stderr}`);
+
+  const payload = JSON.parse(fs.readFileSync(outputPath, 'utf8')) as {
+    ok: boolean;
+    result?: {
+      compilation?: unknown;
+      review?: {
+        start?: { status?: string };
+        submit?: { status?: string };
+        status?: { status?: string };
+      };
+    };
+  };
+
+  assert.equal(payload.ok, true);
+  assert.ok(payload.result?.compilation);
+  assert.equal(payload.result?.review?.start?.status, 'draft');
+  assert.equal(payload.result?.review?.submit?.status, 'in_review');
+  assert.equal(payload.result?.review?.status?.status, 'in_review');
+});
+
+test('CLI review-only mode supports comment, decision, and status with explicit review bundle id', async () => {
+  const reviews = new Map<string, { bundleId: string; workspaceId: string; status: string }>();
+  reviews.set('bundle-explicit', {
+    bundleId: 'bundle-explicit',
+    workspaceId: 'ws-review',
+    status: 'in_review'
+  });
+
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+
+    const commentMatch = url.pathname.match(/^\/reviews\/bundles\/([^/]+)\/comments$/);
+    if (req.method === 'POST' && commentMatch) {
+      const bundleId = decodeURIComponent(commentMatch[1]);
+      const existing = reviews.get(bundleId) ?? { bundleId, workspaceId: 'ws-review', status: 'in_review' };
+      reviews.set(bundleId, existing);
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, result: existing }));
+      return;
+    }
+
+    const decisionMatch = url.pathname.match(/^\/reviews\/bundles\/([^/]+)\/decisions$/);
+    if (req.method === 'POST' && decisionMatch) {
+      const bundleId = decodeURIComponent(decisionMatch[1]);
+      const existing = reviews.get(bundleId) ?? { bundleId, workspaceId: 'ws-review', status: 'in_review' };
+      const next = { ...existing, status: 'approved' };
+      reviews.set(bundleId, next);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, result: next }));
+      return;
+    }
+
+    const statusMatch = url.pathname.match(/^\/reviews\/bundles\/([^/]+)$/);
+    if (req.method === 'GET' && statusMatch) {
+      const bundleId = decodeURIComponent(statusMatch[1]);
+      const existing = reviews.get(bundleId) ?? { bundleId, workspaceId: 'ws-review', status: 'in_review' };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, result: existing }));
+      return;
+    }
+
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const port = (server.address() as AddressInfo).port;
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-compiler-cli-review-only-'));
+  const outputPath = path.join(tempDir, 'result.json');
+  const reviewConfigPath = path.join(tempDir, 'review-config.json');
+
+  fs.writeFileSync(
+    reviewConfigPath,
+    JSON.stringify(
+      {
+        apiBaseUrl: `http://127.0.0.1:${port}`,
+        accountId: 'acct-reviewer',
+        workspaceId: 'ws-review'
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
+
+  const run = await runCliAsync([
+    '--review-bundle-id',
+    'bundle-explicit',
+    '--review-comment',
+    'Looks ready to ship.',
+    '--review-decision',
+    'approve',
+    '--review-status',
+    '--review-config',
+    reviewConfigPath,
+    '--output',
+    outputPath
+  ]);
+
+  await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+
+  assert.equal(run.status, 0, `expected exit code 0, got ${run.status} with stdout: ${run.stdout} stderr: ${run.stderr}`);
+
+  const payload = JSON.parse(fs.readFileSync(outputPath, 'utf8')) as {
+    ok: boolean;
+    result?: {
+      bundleId?: string;
+      review?: {
+        comment?: { status?: string };
+        decision?: { status?: string };
+        status?: { status?: string };
+      };
+    };
+  };
+
+  assert.equal(payload.ok, true);
+  assert.equal(payload.result?.bundleId, 'bundle-explicit');
+  assert.equal(payload.result?.review?.comment?.status, 'in_review');
+  assert.equal(payload.result?.review?.decision?.status, 'approved');
+  assert.equal(payload.result?.review?.status?.status, 'approved');
 });

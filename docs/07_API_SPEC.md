@@ -62,6 +62,47 @@ Role hierarchy: `owner > editor > viewer`
 { "role": "viewer" }
 ```
 
+## Review and Approval Routes (Phase 21)
+
+These routes add explicit bundle review state for workspace-scoped team workflows.
+All routes require `x-account-id` so the API can resolve the caller's workspace role.
+
+| Method | Path | Min Role | Description |
+|--------|------|----------|-------------|
+| POST | `/reviews/bundles` | editor | Create or reopen a bundle review record |
+| GET | `/reviews/bundles/:bundleId?workspaceId=...` | viewer | Read the current bundle review state |
+| POST | `/reviews/bundles/:bundleId/submit` | editor | Move a bundle from `draft`/`changes_requested` to `in_review` |
+| POST | `/reviews/bundles/:bundleId/comments` | viewer | Add reviewer/member comments to the bundle review trail |
+| POST | `/reviews/bundles/:bundleId/decisions` | editor | Submit `approve` or `request_changes` decisions |
+
+### Create review request shape
+```json
+{
+  "bundleId": "bundle-123",
+  "workspaceId": "ws-1",
+  "requiredApprovals": 2
+}
+```
+
+### Review status model
+
+- `draft`: review record exists but is not yet under active review
+- `in_review`: active review is underway and approvals are still pending
+- `changes_requested`: at least one reviewer requested changes
+- `approved`: required approvals were reached with no outstanding change requests
+- `published`: a live workspace publish completed successfully for the approved bundle
+
+## Publish approval gate (Phase 21)
+
+`POST /publish/jobs` now accepts an optional `workspaceId`.
+When a live publish targets a workspace-scoped bundle:
+
+- caller must be an `editor` or `owner` in that workspace
+- the bundle must already have an approved review record
+- successful delivery promotes the review record status to `published`
+
+Dry-run publish remains available without approval state so teams can preview dispatch behavior before a live release.
+
 ## Base routes
 
 ### `POST /compile/auto`
@@ -153,10 +194,108 @@ Returns a stored hosted profile-library document and a derived sync manifest for
 ### `POST /automation/jobs`
 Creates a queued automation job envelope after enforcing hosted capability checks from the shared entitlement model.
 
+## Provider Execution Routes (Phase 14 & Phase 24)
+
+### `POST /execute`
+Sends a compiled prompt output to an AI provider endpoint. Five provider types are supported:
+
+| Provider | Type | Base URL | Use Case |
+|----------|------|----------|----------|
+| OpenAI-compatible | `openai-compatible` | https://api.openai.com/v1 | OpenAI, Azure OpenAI, or compatible endpoints |
+| Suno | `suno` | https://api.suno.ai/api/custom_generate | Music generation |
+| Udio | `udio` | https://api.udio.com/api/custom_generate | Music generation |
+| FLUX | `flux` | https://api.flux.ai/v1/generate | Image generation |
+| Kling | `kling` | https://api.klingai.com/v1/videos/text2video | Video generation |
+| Dry-run | `dry-run` | (local, no call) | Validation + token estimation only |
+
+**Entitlement gate:** Live execution (non-dry-run) requires `credits.compute` entitlement.
+Dry-run mode is always free.
+
+Request shape:
+
+```json
+{
+  "content": "Compiled prompt text to send to the provider",
+  "target": "suno",
+  "bundleId": "bundle-001",
+  "profileId": "profile-123",
+  "provider": {
+    "id": "suno-prod",
+    "type": "suno",
+    "baseUrl": "https://api.suno.ai/api/custom_generate",
+    "model": "suno-v4",
+    "apiKey": "sk-...",
+    "headers": {}
+  },
+  "maxTokens": 512,
+  "temperature": 0.7,
+  "policy": {
+    "timeoutMs": 30000,
+    "maxRetries": 1,
+    "retryDelayMs": 250
+  },
+  "plan": "pro",
+  "mode": "hosted",
+  "entitlements": ["free.local", "pro.creator", "credits.compute"]
+}
+```
+
+Response shape (success):
+
+```json
+{
+  "ok": true,
+  "result": {
+    "requestId": "req-uuid",
+    "bundleId": "bundle-001",
+    "profileId": "profile-123",
+    "target": "suno",
+    "provider": "suno",
+    "estimatedTokens": 142,
+    "isDryRun": false,
+    "responseText": "Generated clip ID: clip-001; Title: My Song",
+    "finishReason": "stop",
+    "executedAt": "2026-04-12T12:00:00.000Z",
+    "latencyMs": 3456
+  }
+
+```
+
+Response shape (error):
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "PROVIDER_ERROR",
+    "message": "Invalid API key provided"
+  }
+## Request shape
+```
+
+Error codes:
+
+| Code | Meaning |
+|------|---------|
+| `NETWORK_ERROR` | Could not reach provider endpoint (ECONNREFUSED, timeout, etc.) |
+| `PARSE_ERROR` | Provider response was not valid JSON |
+| `PROVIDER_ERROR` | Provider returned an error (API key, rate limit, invalid params) |
+| `UNSUPPORTED_PROVIDER` | Provider type is not recognized |
+
+### Usage notes
+
+- **Dry-run mode:** Set `provider.type: "dry-run"` to validate request shape and estimate tokens without making a real API call. Useful for testing and preview.
+- **API key handling:** If `provider.apiKey` is omitted, the implementation falls back to environment variables: `PROVIDER_API_KEY`, `SUNO_API_KEY`, `UDIO_API_KEY`, `FLUX_API_KEY`, `KLING_API_KEY`.
+- **Custom headers:** Use `provider.headers` to inject custom HTTP headers into the provider request (e.g., `X-Test-Header: value`).
+- **Execution policy:** Optional `policy` controls network behavior per request. `timeoutMs` sets per-attempt timeout, `maxRetries` sets retry count after the first failure, and `retryDelayMs` sets delay between retries.
+- **Retry classification:** retries are automatically attempted for HTTP `408`, `429`, and `5xx` responses. Other `4xx` responses are treated as terminal provider errors without retry.
+- **Metadata:** All responses include `requestId`, `executedAt`, `latencyMs`, and `estimatedTokens` for observability and cost tracking.
+- **Token estimation:** `estimatedTokens` is always present, even for dry-run. Uses a ~4 characters per token heuristic for local estimation.
+
+## Compile and Execution Routes (Phase 3 & 14)
+
 ### `POST /compile`
 Compiles a brief and profile into a `CompilationBundle`.
-
-## Request shape
 
 ```json
 {

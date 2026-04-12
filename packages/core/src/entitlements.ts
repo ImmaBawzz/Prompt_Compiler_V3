@@ -159,3 +159,88 @@ export function buildHostedSessionBootstrap(input: ResolveEntitlementsInput = {}
     }
   };
 }
+
+// ---------------------------------------------------------------------------
+// P23 — Entitlement-aware UX messages
+// ---------------------------------------------------------------------------
+
+export interface EntitlementUXMessage {
+  /** User-friendly title or header (short, 1 line). */
+  title: string;
+  /** Detailed message body. Markdown-safe for extension webviews. */
+  message: string;
+  /** Suggested action or upgrade path URL (e.g., "https://upgrade.example.com"). */
+  upgradeUrl?: string;
+  /** Human-readable action label (e.g., "Upgrade to Pro"). */
+  actionLabel?: string;
+  /** Comma-separated plan recommendation (e.g., "pro" or "studio"). */
+  recommendedPlan?: string;
+}
+
+/**
+ * Generate a user-friendly entitlement error message for a feature the user lacks.
+ * Surfaces the upgrade path and recommended plan.
+ */
+export function generateEntitlementUXMessage(
+  featureKey: HostedFeatureKey,
+  currentPlan?: AccountPlan
+): EntitlementUXMessage {
+  const feature = FEATURE_CATALOG[featureKey];
+  if (!feature) {
+    return {
+      title: 'Feature not available',
+      message: 'This feature is not currently available in your account.'
+    };
+  }
+
+  // Determine which plans unlock this feature.
+  const unlockedByPlans = (Object.entries(PLAN_ENTITLEMENTS) as [AccountPlan, readonly EntitlementKey[]][])
+    .filter(([, ents]) => feature.entitlements.some((req) => ents.includes(req)))
+    .map(([plan]) => plan);
+
+  const recommendedPlan = unlockedByPlans[0] ?? 'pro';
+
+  // Generate a friendly message based on the feature.
+  let title = '';
+  let message = '';
+  let actionLabel = '';
+
+  if (featureKey === 'compute.batch') {
+    title = 'Live execution requires credits';
+    message =
+      'To execute compiled outputs to real providers (Suno, FLUX, etc.), you need compute credits. ' +
+      'Upgrade to unlock hosted batch operations and enable live execution in Prompt Compiler.';
+    actionLabel = `Upgrade to ${recommendedPlan === 'studio' ? 'Studio' : 'Pro'}`;
+  } else if (featureKey === 'workspace.shared') {
+    title = 'Team workspaces require a subscription';
+    message =
+      'Shared workspace libraries, member management, and review workflows are available on Studio tier. ' +
+      'Upgrade to enable team collaboration and asset governance.';
+    actionLabel = 'Upgrade to Studio';
+  } else if (featureKey === 'profile.sync.managed') {
+    title = 'Profile sync requires a subscription';
+    message =
+      'Managed profile synchronization across devices is a Pro+ feature. ' +
+      'Upgrade to sync your brand profiles and templates automatically.';
+    actionLabel = `Upgrade to ${recommendedPlan === 'studio' ? 'Studio' : 'Pro'}`;
+  } else if (featureKey === 'automation.jobs') {
+    title = 'Automation requires a subscription';
+    message =
+      'Workflow recipes and scheduled automation are available on Studio tier. ' +
+      'Upgrade to set up multi-step compile and publish workflows.';
+    actionLabel = 'Upgrade to Studio';
+  } else {
+    title = `Feature not available in your plan`;
+    message = `${feature.description} Upgrade your account to unlock this feature.`;
+    actionLabel = `Upgrade to ${recommendedPlan === 'studio' ? 'Studio' : recommendedPlan === 'pro' ? 'Pro' : 'Plus'}`;
+  }
+
+  return {
+    title,
+    message,
+    upgradeUrl: `https://promptcompiler.local/billing/upgrade?from=${currentPlan ?? 'free'}&to=${recommendedPlan}`,
+    actionLabel,
+    recommendedPlan
+  };
+}
+

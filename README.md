@@ -148,7 +148,7 @@ Start the local API server:
 
 ```bash
 npm run dev:api
-# Listening on http://localhost:8788
+# Listening on http://localhost:8787
 ```
 
 ### Routes
@@ -166,7 +166,7 @@ npm run dev:api
 #### POST /compile example
 
 ```bash
-curl -s -X POST http://localhost:8788/compile \
+curl -s -X POST http://localhost:8787/compile \
   -H "Content-Type: application/json" \
   -d '{
     "brief": {
