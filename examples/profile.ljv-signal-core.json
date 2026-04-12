@@ -1,0 +1,30 @@
+{
+  "id": "profile-ljv-signal-core",
+  "brandName": "LJV",
+  "voice": "poetic, technical, emotionally charged, never generic",
+  "signatureMotifs": [
+    "cosmic scale",
+    "heart-pressure emotion",
+    "clean technical framing",
+    "vast moving landscapes"
+  ],
+  "preferredLanguage": "English",
+  "avoid": [
+    "corporate filler",
+    "lazy hype words",
+    "empty buzzwords"
+  ],
+  "formatPreferences": {
+    "suno": "dense but musical paragraph",
+    "udio": "compact ultra-efficient tags",
+    "flux": "cinematic visual detail",
+    "kling": "motion, lens, atmosphere, rhythm",
+    "youtube": "human description + useful hashtags"
+  },
+  "toneWeights": {
+    "clarity": 0.9,
+    "originality": 0.95,
+    "emotion": 0.9,
+    "technicality": 0.75
+  }
+}

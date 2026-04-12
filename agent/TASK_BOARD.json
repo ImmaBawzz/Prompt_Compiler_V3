@@ -1,0 +1,306 @@
+{
+  "project": "Prompt Compiler V3",
+  "currentPhase": "phase-6-hosted-library-persistence",
+  "phases": [
+    {
+      "id": "phase-0-foundation",
+      "title": "Repository Foundation",
+      "status": "done",
+      "goal": "Monorepo scaffold, docs, agent system, examples, schemas, and base scripts exist.",
+      "tasks": [
+        {
+          "id": "P0-1",
+          "title": "Create monorepo skeleton",
+          "status": "done",
+          "dependsOn": []
+        },
+        {
+          "id": "P0-2",
+          "title": "Define product docs and ADRs",
+          "status": "done",
+          "dependsOn": [
+            "P0-1"
+          ]
+        },
+        {
+          "id": "P0-3",
+          "title": "Add agent autonomy package",
+          "status": "done",
+          "dependsOn": [
+            "P0-2"
+          ]
+        },
+        {
+          "id": "P0-4",
+          "title": "Seed examples and schemas",
+          "status": "done",
+          "dependsOn": [
+            "P0-1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-1-core-vertical-slice",
+      "title": "Compiler Core Vertical Slice",
+      "status": "done",
+      "goal": "Compile one brief + one profile into multi-target outputs with diagnostics and tests.",
+      "tasks": [
+        {
+          "id": "P1-1",
+          "title": "Implement validation + normalization",
+          "status": "done",
+          "dependsOn": []
+        },
+        {
+          "id": "P1-2",
+          "title": "Implement target template builders",
+          "status": "done",
+          "dependsOn": [
+            "P1-1"
+          ]
+        },
+        {
+          "id": "P1-3",
+          "title": "Implement diagnostics and scoring",
+          "status": "done",
+          "dependsOn": [
+            "P1-2"
+          ]
+        },
+        {
+          "id": "P1-4",
+          "title": "Add core tests",
+          "status": "done",
+          "dependsOn": [
+            "P1-3"
+          ]
+        },
+        {
+          "id": "P1-5",
+          "title": "Tighten example fixtures",
+          "status": "done",
+          "dependsOn": [
+            "P1-2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-2-extension-local-ux",
+      "title": "VS Code Local UX",
+      "status": "done",
+      "goal": "Open Prompt Studio, compile in-app, preview outputs, and export a bundle into the workspace.",
+      "tasks": [
+        {
+          "id": "P2-1",
+          "title": "Open Prompt Studio panel",
+          "status": "done",
+          "dependsOn": [
+            "P1-2"
+          ]
+        },
+        {
+          "id": "P2-2",
+          "title": "Wire compile messages to core",
+          "status": "done",
+          "dependsOn": [
+            "P2-1"
+          ]
+        },
+        {
+          "id": "P2-3",
+          "title": "Implement export bundle command",
+          "status": "done",
+          "dependsOn": [
+            "P2-2"
+          ]
+        },
+        {
+          "id": "P2-4",
+          "title": "Add artifact explorer tree view",
+          "status": "done",
+          "dependsOn": [
+            "P2-3"
+          ]
+        },
+        {
+          "id": "P2-5",
+          "title": "Polish UX, copy, errors, and state restore",
+          "status": "done",
+          "dependsOn": [
+            "P2-2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-3-cli-api-parity",
+      "title": "CLI and API Parity",
+      "status": "done",
+      "goal": "The same compile path works from CLI and API.",
+      "tasks": [
+        {
+          "id": "P3-1",
+          "title": "Complete CLI argument flow",
+          "status": "done",
+          "dependsOn": [
+            "P1-2"
+          ]
+        },
+        {
+          "id": "P3-2",
+          "title": "Implement API compile route",
+          "status": "done",
+          "dependsOn": [
+            "P1-2"
+          ]
+        },
+        {
+          "id": "P3-3",
+          "title": "Define error contract",
+          "status": "done",
+          "dependsOn": [
+            "P3-2"
+          ]
+        },
+        {
+          "id": "P3-4",
+          "title": "Add smoke tests for parity",
+          "status": "done",
+          "dependsOn": [
+            "P3-1",
+            "P3-2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-4-product-hardening",
+      "title": "Hardening and Monetization Seams",
+      "status": "done",
+      "goal": "Package quality, docs fidelity, and product seams are strong enough for real iteration.",
+      "tasks": [
+        {
+          "id": "P4-1",
+          "title": "Tighten CI and workspace scripts",
+          "status": "done",
+          "dependsOn": [
+            "P1-4"
+          ]
+        },
+        {
+          "id": "P4-2",
+          "title": "Add template packs and preset system",
+          "status": "done",
+          "dependsOn": [
+            "P1-2"
+          ]
+        },
+        {
+          "id": "P4-3",
+          "title": "Define billing boundaries and entitlement map",
+          "status": "done",
+          "dependsOn": []
+        },
+        {
+          "id": "P4-4",
+          "title": "Add release checklist",
+          "status": "done",
+          "dependsOn": [
+            "P4-1"
+          ]
+        },
+        {
+          "id": "P4-5",
+          "title": "Prepare extension packaging and marketplace assets",
+          "status": "done",
+          "dependsOn": [
+            "P2-5"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-5-hosted-seams",
+      "title": "Hosted Sync and Account Seams",
+      "status": "done",
+      "goal": "Introduce reusable hosted account, entitlement, and automation boundaries without compromising the local-first compile path.",
+      "tasks": [
+        {
+          "id": "P5-1",
+          "title": "Add shared entitlement and session bootstrap contract",
+          "status": "done",
+          "dependsOn": [
+            "P4-3"
+          ]
+        },
+        {
+          "id": "P5-2",
+          "title": "Define sync manifest contract for hosted profile libraries",
+          "status": "done",
+          "dependsOn": [
+            "P5-1"
+          ]
+        },
+        {
+          "id": "P5-3",
+          "title": "Define automation job envelope and queue states",
+          "status": "done",
+          "dependsOn": [
+            "P5-1"
+          ]
+        },
+        {
+          "id": "P5-4",
+          "title": "Add API middleware seam for hosted capability checks",
+          "status": "done",
+          "dependsOn": [
+            "P5-1",
+            "P5-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-6-hosted-library-persistence",
+      "title": "Hosted Library Persistence and Sync Touchpoints",
+      "status": "done",
+      "goal": "Add durable hosted-library seams that can later be backed by real storage and connected to extension sync UX.",
+      "tasks": [
+        {
+          "id": "P6-1",
+          "title": "Define hosted profile library document contract",
+          "status": "done",
+          "dependsOn": [
+            "P5-2"
+          ]
+        },
+        {
+          "id": "P6-2",
+          "title": "Add API read/write routes for hosted profile libraries",
+          "status": "done",
+          "dependsOn": [
+            "P6-1"
+          ]
+        },
+        {
+          "id": "P6-3",
+          "title": "Add extension-side hosted sync intent actions",
+          "status": "done",
+          "dependsOn": [
+            "P6-2"
+          ]
+        },
+        {
+          "id": "P6-4",
+          "title": "Introduce storage adapter boundary for API persistence",
+          "status": "done",
+          "dependsOn": [
+            "P6-2"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "automation-job.schema.json",
+  "title": "AutomationJobEnvelope",
+  "type": "object",
+  "required": [
+    "jobId",
+    "jobType",
+    "status",
+    "accountId",
+    "requiredFeature",
+    "creditsReserved",
+    "createdAt",
+    "updatedAt",
+    "inputSummary"
+  ],
+  "properties": {
+    "jobId": { "type": "string" },
+    "jobType": {
+      "type": "string",
+      "enum": ["profile-library-sync", "compile-batch"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["queued", "running", "succeeded", "failed", "canceled"]
+    },
+    "accountId": { "type": "string" },
+    "workspaceId": { "type": "string" },
+    "requiredFeature": { "type": "string" },
+    "creditsReserved": { "type": "number" },
+    "createdAt": { "type": "string" },
+    "updatedAt": { "type": "string" },
+    "inputSummary": { "type": "object" },
+    "resultSummary": { "type": "object" },
+    "error": {
+      "type": ["object", "null"],
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

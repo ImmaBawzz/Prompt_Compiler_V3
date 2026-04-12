@@ -1,0 +1,70 @@
+{
+  "version": "0.3.0",
+  "generatedAt": "2026-04-12T03:31:23.927Z",
+  "briefId": "brief-cosmic-afterglow",
+  "profileId": "profile-ljv-signal-core",
+  "styleDNA": [
+    "LJV",
+    "poetic, technical, emotionally charged, never generic",
+    "cosmic scale",
+    "heart-pressure emotion",
+    "clean technical framing",
+    "vast moving landscapes",
+    "euphoric hardstyle",
+    "dreamwave",
+    "cinematic electronic",
+    "uplifting",
+    "emotional",
+    "vast",
+    "melancholic",
+    "cosmic dawn",
+    "glass horizon",
+    "neon dust",
+    "heart-memory"
+  ],
+  "diagnostics": [],
+  "scoreCard": {
+    "clarity": 80,
+    "specificity": 85,
+    "styleConsistency": 81,
+    "targetReadiness": 91
+  },
+  "outputs": [
+    {
+      "target": "suno",
+      "title": "Cosmic Afterglow — Suno Prompt",
+      "format": "text",
+      "content": "Create a musically coherent piece with the following identity:\nTitle: Cosmic Afterglow\nConcept: An emotional festival anthem where memory feels like starlight melting into sunrise.\nGenres: euphoric hardstyle, dreamwave, cinematic electronic\nMood: uplifting, emotional, vast, melancholic\nBPM: 148\nKey: G minor\nVocals: minimal male spoken phrases in breakdown only\nImagery: cosmic dawn, glass horizon, neon dust, heart-memory\nStructure: atmospheric intro, cinematic build, euphoric drop, reflective break, final elevation\nConstraints: avoid generic EDM phrasing, preserve emotional identity, make outputs copy-paste ready\nBrand voice: poetic, technical, emotionally charged, never generic\nSignature motifs: cosmic scale, heart-pressure emotion, clean technical framing, vast moving landscapes\nAvoid: corporate filler, lazy hype words, empty buzzwords\n\nWrite it as a strong copy-paste music prompt with dense but musical phrasing, preserving originality and emotional identity."
+    },
+    {
+      "target": "udio",
+      "title": "Cosmic Afterglow — Udio Tags",
+      "format": "tags",
+      "content": "euphoric hardstyle, dreamwave, cinematic electronic, uplifting, emotional, vast, melancholic, cosmic dawn, glass horizon, neon dust, heart-memory, cosmic scale, heart-pressure emotion, clean technical framing, vast moving landscapes, G minor, 148 BPM"
+    },
+    {
+      "target": "flux",
+      "title": "Cosmic Afterglow — FLUX Prompt",
+      "format": "text",
+      "content": "Cinematic image concept based on:\nTitle: Cosmic Afterglow\nConcept: An emotional festival anthem where memory feels like starlight melting into sunrise.\nGenres: euphoric hardstyle, dreamwave, cinematic electronic\nMood: uplifting, emotional, vast, melancholic\nBPM: 148\nKey: G minor\nVocals: minimal male spoken phrases in breakdown only\nImagery: cosmic dawn, glass horizon, neon dust, heart-memory\nStructure: atmospheric intro, cinematic build, euphoric drop, reflective break, final elevation\nConstraints: avoid generic EDM phrasing, preserve emotional identity, make outputs copy-paste ready\nBrand voice: poetic, technical, emotionally charged, never generic\nSignature motifs: cosmic scale, heart-pressure emotion, clean technical framing, vast moving landscapes\nAvoid: corporate filler, lazy hype words, empty buzzwords\n\nDescribe a visually striking, emotionally resonant still image that preserves the creator's brand identity."
+    },
+    {
+      "target": "kling",
+      "title": "Cosmic Afterglow — Kling Prompt",
+      "format": "text",
+      "content": "Create a cinematic motion prompt. Include subject, setting, camera behavior, atmosphere, motion rhythm, and visual evolution.\n\nTitle: Cosmic Afterglow\nConcept: An emotional festival anthem where memory feels like starlight melting into sunrise.\nGenres: euphoric hardstyle, dreamwave, cinematic electronic\nMood: uplifting, emotional, vast, melancholic\nBPM: 148\nKey: G minor\nVocals: minimal male spoken phrases in breakdown only\nImagery: cosmic dawn, glass horizon, neon dust, heart-memory\nStructure: atmospheric intro, cinematic build, euphoric drop, reflective break, final elevation\nConstraints: avoid generic EDM phrasing, preserve emotional identity, make outputs copy-paste ready\nBrand voice: poetic, technical, emotionally charged, never generic\nSignature motifs: cosmic scale, heart-pressure emotion, clean technical framing, vast moving landscapes\nAvoid: corporate filler, lazy hype words, empty buzzwords"
+    },
+    {
+      "target": "youtube",
+      "title": "Cosmic Afterglow — YouTube Copy",
+      "format": "markdown",
+      "content": "## Cosmic Afterglow\nAn emotional festival anthem where memory feels like starlight melting into sunrise.\n\nGenres: euphoric hardstyle, dreamwave, cinematic electronic\nMood: uplifting, emotional, vast, melancholic\n\n#PromptCompiler #CreativeWorkflow #AIMusic #AIVideo #AIPrompt #LJV"
+    },
+    {
+      "target": "generic",
+      "title": "Cosmic Afterglow — Generic Output",
+      "format": "text",
+      "content": "Title: Cosmic Afterglow\nConcept: An emotional festival anthem where memory feels like starlight melting into sunrise.\nGenres: euphoric hardstyle, dreamwave, cinematic electronic\nMood: uplifting, emotional, vast, melancholic\nBPM: 148\nKey: G minor\nVocals: minimal male spoken phrases in breakdown only\nImagery: cosmic dawn, glass horizon, neon dust, heart-memory\nStructure: atmospheric intro, cinematic build, euphoric drop, reflective break, final elevation\nConstraints: avoid generic EDM phrasing, preserve emotional identity, make outputs copy-paste ready\nBrand voice: poetic, technical, emotionally charged, never generic\nSignature motifs: cosmic scale, heart-pressure emotion, clean technical framing, vast moving landscapes\nAvoid: corporate filler, lazy hype words, empty buzzwords"
+    }
+  ]
+}

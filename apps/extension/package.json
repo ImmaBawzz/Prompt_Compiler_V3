@@ -1,0 +1,95 @@
+{
+  "name": "prompt-compiler-extension",
+  "displayName": "Prompt Compiler",
+  "publisher": "local-dev",
+  "version": "0.3.0",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onCommand:promptCompiler.openStudio",
+    "onCommand:promptCompiler.exportSampleBrief",
+    "onCommand:promptCompiler.syncPushProfileLibrary",
+    "onCommand:promptCompiler.syncPullProfileLibrary",
+    "onView:promptCompilerArtifacts"
+  ],
+  "main": "./dist/apps/extension/src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "promptCompiler.openStudio",
+        "title": "Prompt Compiler: Open Studio"
+      },
+      {
+        "command": "promptCompiler.exportSampleBrief",
+        "title": "Prompt Compiler: Export Sample Brief"
+      },
+      {
+        "command": "promptCompiler.compileActiveJson",
+        "title": "Prompt Compiler: Compile Active JSON Brief"
+      },
+      {
+        "command": "promptCompiler.refreshArtifacts",
+        "title": "Prompt Compiler: Refresh Artifact Explorer"
+      },
+      {
+        "command": "promptCompiler.revealLatestExportFolder",
+        "title": "Prompt Compiler: Reveal Latest Export Folder"
+      },
+      {
+        "command": "promptCompiler.syncPushProfileLibrary",
+        "title": "Prompt Compiler: Sync Push Profile Library (Hosted)"
+      },
+      {
+        "command": "promptCompiler.syncPullProfileLibrary",
+        "title": "Prompt Compiler: Sync Pull Profile Library (Hosted)"
+      }
+    ],
+    "configuration": {
+      "title": "Prompt Compiler",
+      "properties": {
+        "promptCompiler.hostedApiBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:8788",
+          "description": "Base URL for hosted sync routes used by Prompt Compiler extension sync intent commands."
+        }
+      }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "promptCompilerArtifacts",
+          "name": "Prompt Compiler Artifacts"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "promptCompiler.refreshArtifacts",
+          "when": "view == promptCompilerArtifacts",
+          "group": "navigation"
+        },
+        {
+          "command": "promptCompiler.revealLatestExportFolder",
+          "when": "view == promptCompilerArtifacts",
+          "group": "navigation@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -w -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"console.log('Extension tests not wired yet')\"",
+    "package": "node -e \"console.log('Run vsce package after npm install -g @vscode/vsce')\""
+  },
+  "dependencies": {
+    "@prompt-compiler/core": "0.3.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.99.0"
+  }
+}

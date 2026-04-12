@@ -1,0 +1,15 @@
+{
+  "name": "prompt-compiler-api",
+  "version": "0.3.0",
+  "main": "dist/apps/api/src/server.js",
+  "types": "dist/apps/api/src/server.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/apps/api/src/__tests__/*.test.js",
+    "dev": "npm run build && node dist/apps/api/src/server.js"
+  },
+  "dependencies": {
+    "@prompt-compiler/core": "0.3.0"
+  }
+}

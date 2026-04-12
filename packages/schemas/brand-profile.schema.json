@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "brand-profile.schema.json",
+  "title": "BrandProfile",
+  "type": "object",
+  "required": [
+    "id",
+    "brandName",
+    "voice"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "brandName": {
+      "type": "string"
+    },
+    "voice": {
+      "type": "string"
+    },
+    "signatureMotifs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "preferredLanguage": {
+      "type": "string"
+    },
+    "avoid": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "formatPreferences": {
+      "type": "object"
+    },
+    "toneWeights": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

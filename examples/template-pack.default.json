@@ -1,0 +1,16 @@
+{
+  "id": "pack-default-v1",
+  "name": "Default Starter Pack",
+  "templates": {
+    "generic": {
+      "prefix": "",
+      "suffix": ""
+    },
+    "youtube": {
+      "hashtagCount": 8
+    },
+    "udio": {
+      "separator": ", "
+    }
+  }
+}

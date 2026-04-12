@@ -1,0 +1,9 @@
+node_modules
+**/node_modules
+**/dist
+.vscode-test
+.env
+.DS_Store
+coverage
+*.vsix
+.prompt-compiler-cache

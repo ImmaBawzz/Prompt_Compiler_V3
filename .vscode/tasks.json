@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "repo: build",
+      "type": "shell",
+      "command": "npm run build",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "repo: test",
+      "type": "shell",
+      "command": "npm run test",
+      "problemMatcher": []
+    },
+    {
+      "label": "repo: status",
+      "type": "shell",
+      "command": "npm run status",
+      "problemMatcher": []
+    },
+    {
+      "label": "api: dev",
+      "type": "shell",
+      "command": "npm run dev:api",
+      "problemMatcher": []
+    },
+    {
+      "label": "extension: watch",
+      "type": "shell",
+      "command": "npm run dev:extension",
+      "problemMatcher": ["$tsc-watch"]
+    }
+  ]
+}

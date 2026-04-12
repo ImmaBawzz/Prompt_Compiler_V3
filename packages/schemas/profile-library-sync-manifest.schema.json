@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "profile-library-sync-manifest.schema.json",
+  "title": "ProfileLibrarySyncManifest",
+  "type": "object",
+  "required": [
+    "manifestVersion",
+    "generatedAt",
+    "accountId",
+    "cursor",
+    "entitlements",
+    "assets"
+  ],
+  "properties": {
+    "manifestVersion": {
+      "type": "string"
+    },
+    "generatedAt": {
+      "type": "string"
+    },
+    "accountId": {
+      "type": "string"
+    },
+    "workspaceId": {
+      "type": "string"
+    },
+    "cursor": {
+      "type": "string"
+    },
+    "entitlements": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "assetId",
+          "assetType",
+          "displayName",
+          "version",
+          "updatedAt",
+          "checksum",
+          "workspaceScoped",
+          "deleted"
+        ],
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "assetType": {
+            "type": "string",
+            "enum": ["brand-profile", "template-pack"]
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "checksum": {
+            "type": "string"
+          },
+          "workspaceScoped": {
+            "type": "boolean"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

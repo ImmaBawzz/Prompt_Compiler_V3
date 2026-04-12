@@ -1,0 +1,26 @@
+{
+  "name": "prompt-compiler-v3-monorepo",
+  "private": true,
+  "version": "0.3.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "verify": "npm run validate:structure && npm run clean && npm run build && npm run test && npm run status",
+    "clean": "node scripts/clean.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "validate:structure": "node scripts/validate-structure.mjs",
+    "status": "node scripts/render-task-status.mjs",
+    "sample:cli": "npm --workspace packages/cli run sample",
+    "dev:api": "npm --workspace apps/api run dev",
+    "dev:extension": "npm --workspace apps/extension run watch",
+    "package:extension": "npm --workspace apps/extension run package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.18",
+    "typescript": "^5.8.3"
+  }
+}

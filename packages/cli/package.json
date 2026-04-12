@@ -1,0 +1,18 @@
+{
+  "name": "@prompt-compiler/cli",
+  "version": "0.3.0",
+  "main": "dist/cli/src/index.js",
+  "types": "dist/cli/src/index.d.ts",
+  "bin": {
+    "prompt-compiler": "dist/cli/src/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"console.log('No CLI tests yet')\"",
+    "sample": "npm run build && node dist/cli/src/index.js --brief ../../examples/brief.cinematic-afterglow.json --profile ../../examples/profile.ljv-signal-core.json --include-generic"
+  },
+  "dependencies": {
+    "@prompt-compiler/core": "0.3.0"
+  }
+}

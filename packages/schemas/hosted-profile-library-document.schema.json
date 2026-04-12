@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hosted-profile-library-document.schema.json",
+  "title": "HostedProfileLibraryDocument",
+  "type": "object",
+  "required": [
+    "documentVersion",
+    "accountId",
+    "profiles",
+    "templatePacks",
+    "updatedAt"
+  ],
+  "properties": {
+    "documentVersion": { "type": "string" },
+    "accountId": { "type": "string" },
+    "workspaceId": { "type": "string" },
+    "profiles": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "templatePacks": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "updatedAt": { "type": "string" }
+  },
+  "additionalProperties": false
+}

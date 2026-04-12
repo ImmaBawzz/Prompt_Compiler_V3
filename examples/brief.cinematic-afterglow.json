@@ -1,0 +1,46 @@
+{
+  "id": "brief-cosmic-afterglow",
+  "title": "Cosmic Afterglow",
+  "concept": "An emotional festival anthem where memory feels like starlight melting into sunrise.",
+  "targets": [
+    "suno",
+    "udio",
+    "flux",
+    "kling",
+    "youtube"
+  ],
+  "genres": [
+    "euphoric hardstyle",
+    "dreamwave",
+    "cinematic electronic"
+  ],
+  "mood": [
+    "uplifting",
+    "emotional",
+    "vast",
+    "melancholic"
+  ],
+  "energy": 8,
+  "bpm": 148,
+  "key": "G minor",
+  "vocals": "minimal male spoken phrases in breakdown only",
+  "imagery": [
+    "cosmic dawn",
+    "glass horizon",
+    "neon dust",
+    "heart-memory"
+  ],
+  "structure": [
+    "atmospheric intro",
+    "cinematic build",
+    "euphoric drop",
+    "reflective break",
+    "final elevation"
+  ],
+  "constraints": [
+    "avoid generic EDM phrasing",
+    "preserve emotional identity",
+    "make outputs copy-paste ready"
+  ],
+  "notes": "The work should feel intimate and festival-sized at the same time."
+}
