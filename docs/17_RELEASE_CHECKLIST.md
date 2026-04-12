@@ -25,7 +25,13 @@
 ## GitHub push readiness
 1. Ensure working tree changes are intentional.
 2. Ensure CI workflow uses `npm run verify`.
+3. Ensure release workflow exists for tag pushes (`v*`) and `workflow_dispatch`.
 3. Prepare PR notes with:
 - completed tasks
 - verification results
 - known gaps and follow-ups
+
+## Tag and release flow
+1. Bump version and update `CHANGELOG.md`.
+2. Create and push tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. Confirm GitHub Release is auto-created from the tag workflow.

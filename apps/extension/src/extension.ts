@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { compilePromptBundle, createExportPlan, BrandProfile, PromptBrief } from '@prompt-compiler/core';
 import { ArtifactExplorerProvider } from './artifactExplorer';
+import { AccountPlan, entitlementsForPlan, safeParseState } from './hostedSync';
 import { getStudioHtml } from './studioHtml';
 
 const LAST_BRIEF_KEY = 'promptCompiler.lastBrief';
@@ -28,20 +29,6 @@ const DEFAULT_PROFILE = {
   signatureMotifs: ['cosmic scale', 'heart pressure', 'vast motion'],
   avoid: ['corporate filler', 'buzzword sludge']
 };
-
-type AccountPlan = 'free' | 'pro' | 'studio';
-
-function entitlementsForPlan(plan: AccountPlan): string[] {
-  if (plan === 'studio') {
-    return ['free.local', 'pro.creator', 'studio.team'];
-  }
-
-  if (plan === 'pro') {
-    return ['free.local', 'pro.creator'];
-  }
-
-  return ['free.local'];
-}
 
 function hostedApiBase(): string {
   return (vscode.workspace.getConfiguration('promptCompiler').get<string>('hostedApiBaseUrl') ?? DEFAULT_HOSTED_API_BASE).replace(/\/$/, '');
@@ -231,18 +218,6 @@ function parseJsonOrThrow<T>(raw: string, label: string): T {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Invalid JSON';
     throw new Error(`${label} JSON is invalid: ${message}`);
-  }
-}
-
-function safeParseState<T>(raw: string | undefined): T | undefined {
-  if (!raw) {
-    return undefined;
-  }
-
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return undefined;
   }
 }
 

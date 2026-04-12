@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"console.log('No CLI tests yet')\"",
+    "test": "npm run build && node --test dist/cli/src/__tests__/*.test.js",
     "sample": "npm run build && node dist/cli/src/index.js --brief ../../examples/brief.cinematic-afterglow.json --profile ../../examples/profile.ljv-signal-core.json --include-generic"
   },
   "dependencies": {

@@ -93,3 +93,9 @@
 - completed: extracted hosted profile-library persistence behind a `profileLibraryStore` adapter, updated server wiring to dependency injection, and added adapter tests while keeping route contracts unchanged.
 - next: define phase 7 priorities (durable backend integration, auth middleware, and richer extension-hosted sync UX).
 - blockers: none
+
+- date: 2026-04-12
+- phase: 7 / release automation and governance hardening
+- completed: added tag-driven GitHub release workflow, replaced placeholder CLI/extension tests with concrete Node test suites, updated test/release docs, and configured main branch protection required checks.
+- next: define phase 8 priorities around durable hosted storage backends and auth/account hardening.
+- blockers: none

@@ -1,6 +1,6 @@
 {
   "project": "Prompt Compiler V3",
-  "currentPhase": "phase-6-hosted-library-persistence",
+  "currentPhase": "phase-7-release-and-governance-hardening",
   "phases": [
     {
       "id": "phase-0-foundation",
@@ -298,6 +298,40 @@
           "status": "done",
           "dependsOn": [
             "P6-2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-7-release-and-governance-hardening",
+      "title": "Release Automation and Governance Hardening",
+      "status": "done",
+      "goal": "Automate release publication, enforce branch protections, and replace placeholder tests with concrete suite coverage.",
+      "tasks": [
+        {
+          "id": "P7-1",
+          "title": "Add GitHub tag-based release workflow",
+          "status": "done",
+          "dependsOn": [
+            "P4-1",
+            "P4-4"
+          ]
+        },
+        {
+          "id": "P7-2",
+          "title": "Set branch protection required checks",
+          "status": "done",
+          "dependsOn": [
+            "P7-1"
+          ]
+        },
+        {
+          "id": "P7-3",
+          "title": "Replace placeholder CLI and extension tests",
+          "status": "done",
+          "dependsOn": [
+            "P3-4",
+            "P2-5"
           ]
         }
       ]

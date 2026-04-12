@@ -83,7 +83,7 @@
     "build": "tsc -p tsconfig.json",
     "watch": "tsc -w -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"console.log('Extension tests not wired yet')\"",
+    "test": "npm run build && node --test dist/apps/extension/src/__tests__/*.test.js",
     "package": "node -e \"console.log('Run vsce package after npm install -g @vscode/vsce')\""
   },
   "dependencies": {
