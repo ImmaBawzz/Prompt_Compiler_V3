@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prompt-compiler.dev/schemas/publish-job.schema.json",
+  "title": "PublishJob",
+  "description": "A job that dispatches an accepted compilation bundle to an external destination.",
+  "type": "object",
+  "required": ["jobId", "bundleId", "profileId", "target", "status", "createdAt", "updatedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "jobId": {
+      "type": "string",
+      "description": "Unique job ID (UUID)."
+    },
+    "bundleId": {
+      "type": "string"
+    },
+    "profileId": {
+      "type": "string"
+    },
+    "target": {
+      "$ref": "#/$defs/PublishTarget"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["queued", "dispatched", "delivered", "failed"]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "remoteStatus": {
+      "type": "integer",
+      "description": "HTTP status code from the remote endpoint."
+    },
+    "responseExcerpt": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "PublishTarget": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "kind": {
+          "type": "string",
+          "enum": ["webhook", "dry-run"]
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Destination URL for webhook targets."
+        },
+        "secret": {
+          "type": "string",
+          "description": "HMAC-SHA256 signing secret. Signature sent in X-Signature header."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

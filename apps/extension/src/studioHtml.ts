@@ -42,6 +42,18 @@ export function getStudioHtml(
           <button id="exportBtn">Export Bundle</button>
         </section>
 
+        <section class="panel auto-panel">
+          <h2>Auto Compile <span class="auto-badge">from prompt</span></h2>
+          <textarea id="autoPromptInput" placeholder="Describe what you want in plain language, e.g. &#34;A dark cinematic lo-fi track for YouTube with heavy bass&#34;"></textarea>
+          <div class="auto-actions">
+            <button id="autoCompileBtn">Auto Compile</button>
+            <label class="auto-refine-label">
+              <input type="checkbox" id="autoRefineCheck" />
+              Auto-refine
+            </label>
+          </div>
+        </section>
+
         <section class="status">
           <span id="statusOutput">Ready.</span>
         </section>
@@ -49,6 +61,12 @@ export function getStudioHtml(
         <section class="panel">
           <h2>Result</h2>
           <pre id="resultOutput">Press Compile to generate outputs.</pre>
+        </section>
+
+        <section class="refinements" id="refinementsSection" style="display:none">
+          <h2>Refinement Suggestions</h2>
+          <ul id="hintsList"></ul>
+          <button id="refineBtn">Apply Hints &amp; Refine</button>
         </section>
       </div>
       <script nonce="${nonce}" src="${scriptUri}"></script>

@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "workflow-recipe",
+  "title": "WorkflowRecipe",
+  "description": "A named sequence of compile steps that apply brief/profile overrides and refinement hints.",
+  "type": "object",
+  "required": ["id", "name", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string" },
+          "briefOverride": {
+            "type": "object",
+            "description": "Partial PromptBrief fields to merge over the base brief for this step."
+          },
+          "profileOverride": {
+            "type": "object",
+            "description": "Partial BrandProfile fields to merge over the base profile for this step."
+          },
+          "refinements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["type"],
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "boost-specificity",
+                    "reduce-vagueness",
+                    "add-constraint",
+                    "adjust-tone",
+                    "add-target",
+                    "remove-target"
+                  ]
+                },
+                "target": {
+                  "type": "string",
+                  "enum": ["suno", "udio", "flux", "kling", "youtube", "generic"]
+                },
+                "value": { "type": "string" },
+                "note": { "type": "string" }
+              }
+            }
+          },
+          "options": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "includeGenericOutput": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

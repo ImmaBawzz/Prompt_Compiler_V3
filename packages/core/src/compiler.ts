@@ -47,7 +47,7 @@ export function compilePromptBundle(
       profileId: normalizedProfile.id || 'unknown-profile',
       styleDNA: [],
       diagnostics,
-      scoreCard: buildScoreCard(normalizedBrief, normalizedProfile),
+      scoreCard: buildScoreCard(normalizedBrief, normalizedProfile, options.scoreWeights),
       outputs: []
     };
   }
@@ -71,7 +71,7 @@ export function compilePromptBundle(
     profileId: normalizedProfile.id,
     styleDNA: buildStyleDNA(normalizedBrief, normalizedProfile),
     diagnostics,
-    scoreCard: buildScoreCard(normalizedBrief, normalizedProfile),
+    scoreCard: buildScoreCard(normalizedBrief, normalizedProfile, options.scoreWeights),
     outputs
   };
 }

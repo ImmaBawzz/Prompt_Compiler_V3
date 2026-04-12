@@ -1,40 +1,47 @@
 # Packaging Guide
 
 ## Extension
-Use `vsce` to package the VS Code extension into a VSIX.
+Use `vsce` (bundled as dev dependency in `apps/extension`) to package the VS Code extension into a VSIX.
 
 Typical flow:
-1. install `@vscode/vsce`
-2. build the repo
-3. package from `apps/extension`
-
-Recommended commands:
-
 ```bash
 npm ci
-npm run verify
-npm --workspace apps/extension run build
+npm run build
 cd apps/extension
-npx vsce package
+npm run package        # runs: npx vsce package --no-dependencies
 ```
 
 ## Marketplace asset readiness
 
 Before publishing to Marketplace, ensure:
 
-1. extension command titles are human-readable and consistent
-2. extension `package.json` has clear `description`, `keywords`, and category fit
-3. changelog reflects the packaged behavior
-4. screenshots/gifs for Prompt Studio and Artifact Explorer are prepared
-5. licensing and repository metadata are present
+1. `publisher` is set to your registered publisher ID (currently `local-dev` — change before publishing)
+2. Extension `package.json` has `description`, `keywords`, `license`, `repository`, and `categories`
+3. `galleryBanner` color is set (currently `#0d1117` dark theme)
+4. `preview: false` is set for stable channel releases
+5. Changelog reflects the packaged behavior
+6. Screenshots/gifs for Prompt Studio and Artifact Explorer are prepared
+7. An `icon.png` (128×128) is present in `apps/extension/` and referenced in package.json under `"icon"`
+
+## Release channels
+
+Prompt Compiler uses two release channels configured via `promptCompiler.releaseChannel` extension setting:
+
+- `stable` (default) — production-ready features only
+- `preview` — experimental and in-development features enabled
+
+For a **pre-release** marketplace listing, use `vsce package --pre-release`.
+For a **stable** listing, use `npm run package` from `apps/extension` (default).
 
 ## Local release artifact checks
 
-1. run `npm run verify`
-2. run API health check on localhost after build
-3. compile/export once from Prompt Studio
-4. validate generated `.prompt-compiler/exports` structure
-5. package extension and validate install in Extension Development Host
+1. Run `npm run verify` from repo root
+2. Run API health check: `curl http://localhost:8787/health`
+3. Compile/export once from Prompt Studio and verify Artifact Explorer updates
+4. Validate generated `.prompt-compiler/exports` structure
+5. Package extension with `npm run package` from `apps/extension`
+6. Install the generated `.vsix` in Extension Development Host and re-run compile/export flow
 
 ## Product packaging
 For private iteration, zip the full monorepo so the docs, examples, and agent files stay together.
+

@@ -1,6 +1,6 @@
 {
   "project": "Prompt Compiler V3",
-  "currentPhase": "phase-7-release-and-governance-hardening",
+  "currentPhase": "phase-20-api-input-validation-hardening",
   "phases": [
     {
       "id": "phase-0-foundation",
@@ -335,6 +335,374 @@
           ]
         }
       ]
+    },
+    {
+      "id": "phase-8-refinement-loops-and-workflow-recipes",
+      "title": "Refinement Loops, Workflow Recipes, and Durable Storage",
+      "status": "done",
+      "goal": "Add iterative refinement to the compile path, introduce workflow recipe execution, and replace in-memory persistence with a file-based storage adapter.",
+      "tasks": [
+        {
+          "id": "P8-1",
+          "title": "Add RefinementHint type and refinePromptBundle to core",
+          "status": "done",
+          "dependsOn": [
+            "P1-3"
+          ]
+        },
+        {
+          "id": "P8-2",
+          "title": "Add /compile/refine API route",
+          "status": "done",
+          "dependsOn": [
+            "P8-1"
+          ]
+        },
+        {
+          "id": "P8-3",
+          "title": "Add WorkflowRecipe schema and executor in core",
+          "status": "done",
+          "dependsOn": [
+            "P8-1"
+          ]
+        },
+        {
+          "id": "P8-4",
+          "title": "Add file-based storage adapter for profile library",
+          "status": "done",
+          "dependsOn": [
+            "P6-4"
+          ]
+        },
+        {
+          "id": "P8-5",
+          "title": "Add refinement hint suggestions to Studio panel",
+          "status": "done",
+          "dependsOn": [
+            "P8-1",
+            "P2-5"
+          ]
+        },
+        {
+          "id": "P8-6",
+          "title": "Add tests for refinement, recipe executor, and file adapter",
+          "status": "done",
+          "dependsOn": [
+            "P8-1",
+            "P8-3",
+            "P8-4"
+          ]
+        },
+        {
+          "id": "P8-7",
+          "title": "Update docs, roadmap, and API spec",
+          "status": "done",
+          "dependsOn": [
+            "P8-1",
+            "P8-2",
+            "P8-3",
+            "P8-4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phase-9-full-automation-from-initial-prompt",
+      "title": "Full Automation from Initial Prompt",
+      "status": "done",
+      "goal": "User provides a single natural language prompt and receives a complete compiled bundle automatically — no JSON editing required.",
+      "tasks": [
+        {
+          "id": "P9-1",
+          "title": "Add AutoCompileRequest / AutoCompileResult types",
+          "status": "done",
+          "dependsOn": []
+        },
+        {
+          "id": "P9-2",
+          "title": "Implement deriveBriefFromPrompt and autoCompile in core",
+          "status": "done",
+          "dependsOn": ["P9-1"]
+        },
+        {
+          "id": "P9-3",
+          "title": "Add POST /compile/auto API route",
+          "status": "done",
+          "dependsOn": ["P9-2"]
+        },
+        {
+          "id": "P9-4",
+          "title": "Add --prompt flag to CLI",
+          "status": "done",
+          "dependsOn": ["P9-2"]
+        },
+        {
+          "id": "P9-5",
+          "title": "Add Auto Compile section to Studio panel",
+          "status": "done",
+          "dependsOn": ["P9-2"]
+        },
+        {
+          "id": "P9-6",
+          "title": "Handle autoCompile message in extension.ts",
+          "status": "done",
+          "dependsOn": ["P9-5"]
+        },
+        {
+          "id": "P9-7",
+          "title": "Add auto-compile tests (17 assertions)",
+          "status": "done",
+          "dependsOn": ["P9-2"]
+        },
+        {
+          "id": "P9-8",
+          "title": "Update roadmap, API spec, work log",
+          "status": "done",
+          "dependsOn": ["P9-1", "P9-2", "P9-3", "P9-4", "P9-5"]
+        }
+      ]
+    },
+    {
+      "id": "phase-10-auth-account-boundary-hardening",
+      "title": "Auth and Account Boundary Hardening",
+      "status": "done",
+      "goal": "Add auth middleware seams, identity propagation, and account/workspace authorization checks across hosted routes.",
+      "tasks": [
+        {
+          "id": "P10-1",
+          "title": "Create auth.ts with AuthContext, AuthConfig, resolveAuthContext",
+          "status": "done",
+          "dependsOn": []
+        },
+        {
+          "id": "P10-2",
+          "title": "Wire auth middleware into protected API routes",
+          "status": "done",
+          "dependsOn": ["P10-1"]
+        },
+        {
+          "id": "P10-3",
+          "title": "Add auth unit and integration tests",
+          "status": "done",
+          "dependsOn": ["P10-1", "P10-2"]
+        },
+        {
+          "id": "P10-4",
+          "title": "Update API spec and work log",
+          "status": "done",
+          "dependsOn": ["P10-1", "P10-2"]
+        }
+      ]
+    },
+    {
+      "id": "phase-11-durable-hosted-backend",
+      "title": "Durable Hosted Backend Integration",
+      "status": "done",
+      "goal": "Replace file-backed adapter with a production storage adapter (still behind the existing store interface) and keep route contracts unchanged.",
+      "tasks": [
+        {
+          "id": "P11-1",
+          "title": "Add atomic writes to file store (temp-file + rename)",
+          "status": "done",
+          "dependsOn": []
+        },
+        {
+          "id": "P11-2",
+          "title": "Add store list/enumerate capability",
+          "status": "done",
+          "dependsOn": ["P11-1"]
+        },
+        {
+          "id": "P11-3",
+          "title": "Add SQLite store adapter behind HostedProfileLibraryStore interface",
+          "status": "done",
+          "dependsOn": ["P11-1"]
+        },
+        {
+          "id": "P11-4",
+          "title": "Add store adapter tests",
+          "status": "done",
+          "dependsOn": ["P11-1", "P11-2", "P11-3"]
+        }
+      ]
+    },
+    {
+      "id": "phase-12-team-workflows-governance",
+      "title": "Team Workflows and Governance",
+      "status": "done",
+      "goal": "Shared workspaces, role-based permissions, and collaboration-safe recipe/profile operations.",
+      "tasks": [
+        {
+          "id": "P12-1",
+          "title": "Define WorkspaceMember and WorkspaceRole types in core",
+          "status": "done",
+          "dependsOn": []
+        },
+        {
+          "id": "P12-2",
+          "title": "Add workspace membership store interface",
+          "status": "done",
+          "dependsOn": ["P12-1"]
+        },
+        {
+          "id": "P12-3",
+          "title": "Add role-based route guards (owner/editor/viewer)",
+          "status": "done",
+          "dependsOn": ["P12-1", "P12-2"]
+        },
+        {
+          "id": "P12-4",
+          "title": "Add team workspace API routes",
+          "status": "done",
+          "dependsOn": ["P12-2", "P12-3"]
+        },
+        {
+          "id": "P12-5",
+          "title": "Add governance tests",
+          "status": "done",
+          "dependsOn": ["P12-3", "P12-4"]
+        }
+      ]
+    },
+    {
+      "id": "phase-13-packaging-commercialization",
+      "title": "Packaging and Release Commercialization",
+      "status": "done",
+      "goal": "Marketplace-ready extension packaging, release channels, and billing/entitlement enforcement polish.",
+      "tasks": [
+        {
+          "id": "P13-1",
+          "title": "Harden entitlement enforcement in all compile/export routes",
+          "status": "done",
+          "dependsOn": []
+        },
+        {
+          "id": "P13-2",
+          "title": "Add billing credit deduction hooks to automation job envelope",
+          "status": "done",
+          "dependsOn": ["P13-1"]
+        },
+        {
+          "id": "P13-3",
+          "title": "Add release channel config (stable/preview) to extension manifest",
+          "status": "done",
+          "dependsOn": []
+        },
+        {
+          "id": "P13-4",
+          "title": "Validate extension package.json for VS Code marketplace requirements",
+          "status": "done",
+          "dependsOn": ["P13-3"]
+        },
+        {
+          "id": "P13-5",
+          "title": "Update packaging guide and release checklist",
+          "status": "done",
+          "dependsOn": ["P13-3", "P13-4"]
+        }
+      ]
+    },
+    {
+      "id": "phase-14-provider-execution-bridge",
+      "title": "Provider Execution Bridge",
+      "status": "done",
+      "goal": "Close the gap from compiled output to actual AI provider submission. Makes Prompt Compiler indispensable rather than just useful.",
+      "tasks": [
+        { "id": "P14-1", "title": "Define ProviderTarget and ExecutionRequest contracts in core", "status": "done", "dependsOn": [] },
+        { "id": "P14-2", "title": "Add POST /execute API route with dry-run mode", "status": "done", "dependsOn": ["P14-1"] },
+        { "id": "P14-3", "title": "Implement generic HTTP/OpenAI-compatible provider adapter", "status": "done", "dependsOn": ["P14-1"] },
+        { "id": "P14-4", "title": "Add extension Send to Provider command", "status": "deferred", "dependsOn": ["P14-2", "P14-3"] },
+        { "id": "P14-5", "title": "Store execution results in artifact explorer alongside bundle", "status": "deferred", "dependsOn": ["P14-4"] },
+        { "id": "P14-6", "title": "Add CLI --execute flag with provider config file", "status": "deferred", "dependsOn": ["P14-3"] },
+        { "id": "P14-7", "title": "Tests, schema (execution-request.schema.json), API spec update", "status": "done", "dependsOn": ["P14-2", "P14-3"] }
+      ]
+    },
+    {
+      "id": "phase-15-feedback-scoring-loop",
+      "title": "Closed-Loop Feedback Scoring",
+      "status": "done",
+      "goal": "Record outcome feedback per compiled output and use it to improve future scoring weights per profile. Makes the product a learning creative system.",
+      "tasks": [
+        { "id": "P15-1", "title": "Add FeedbackRecord type and feedback schema to core", "status": "done", "dependsOn": [] },
+        { "id": "P15-2", "title": "Add POST /feedback API route to persist outcome signals", "status": "done", "dependsOn": ["P15-1"] },
+        { "id": "P15-3", "title": "Implement deriveScoringWeightsFromFeedback in core", "status": "done", "dependsOn": ["P15-1"] },
+        { "id": "P15-4", "title": "Persist feedback per profile in hosted store adapter", "status": "done", "dependsOn": ["P15-2"] },
+        { "id": "P15-5", "title": "Apply learned weights to buildScoreCard via CompileOptions.scoreWeights", "status": "deferred", "dependsOn": ["P15-3"] },
+        { "id": "P15-6", "title": "Surface aggregate feedback in artifact explorer", "status": "deferred", "dependsOn": ["P15-4"] },
+        { "id": "P15-7", "title": "Tests for weight derivation and weighted scoring", "status": "done", "dependsOn": ["P15-3", "P15-5"] }
+      ]
+    },
+    {
+      "id": "phase-16-publishing-automation",
+      "title": "Publishing Automation and Release Pipelines",
+      "status": "done",
+      "goal": "Push accepted bundles to release destinations (webhooks, CMS, platform APIs) without leaving the tool. Fulfils PRD publishing automation and justifies Studio tier.",
+      "tasks": [
+        { "id": "P16-1", "title": "Define PublishTarget and PublishJob contracts in core", "status": "done", "dependsOn": [] },
+        { "id": "P16-2", "title": "Add POST /publish/jobs API route", "status": "done", "dependsOn": ["P16-1"] },
+        { "id": "P16-3", "title": "Implement generic signed-webhook publish adapter", "status": "done", "dependsOn": ["P16-1"] },
+        { "id": "P16-4", "title": "Add Publish Bundle extension command with configurable destination", "status": "deferred", "dependsOn": ["P16-2", "P16-3"] },
+        { "id": "P16-5", "title": "Persist publish job state in hosted store adapter", "status": "done", "dependsOn": ["P16-2"] },
+        { "id": "P16-6", "title": "Add CLI --publish flag reading publish-config.json", "status": "deferred", "dependsOn": ["P16-3"] },
+        { "id": "P16-7", "title": "Tests, schema (publish-job.schema.json), API spec update", "status": "done", "dependsOn": ["P16-2", "P16-3"] }
+      ]
+    },
+    {
+      "id": "phase-17-profile-marketplace",
+      "title": "Shareable Profile Marketplace",
+      "status": "done",
+      "goal": "Creators share and sell branded profiles and template packs. Monetization wedge that requires no server-side execution — pure schema-validated JSON artifacts behind an entitlement gate.",
+      "tasks": [
+        { "id": "P17-1", "title": "Define MarketplaceListingDocument contract and schema", "status": "done", "dependsOn": [] },
+        { "id": "P17-2", "title": "Add GET /marketplace/listings and POST /marketplace/listings routes", "status": "done", "dependsOn": ["P17-1"] },
+        { "id": "P17-3", "title": "Add entitlement gate: pro.creator to publish, free to browse", "status": "done", "dependsOn": ["P17-2"] },
+        { "id": "P17-4", "title": "Add POST /marketplace/install route to pull listing into profile library", "status": "done", "dependsOn": ["P17-2"] },
+        { "id": "P17-5", "title": "Add Browse Marketplace extension command (quick pick)", "status": "deferred", "dependsOn": ["P17-4"] },
+        { "id": "P17-6", "title": "Add CLI --install-listing <id> flag", "status": "deferred", "dependsOn": ["P17-4"] },
+        { "id": "P17-7", "title": "Tests, schema (marketplace-listing.schema.json), API spec update", "status": "done", "dependsOn": ["P17-2", "P17-3", "P17-4"] }
+      ]
+    },
+    {
+      "id": "phase-18-surface-parity-feedback-hardening",
+      "title": "Surface Parity, Feedback Loop Completion, and Hardening",
+      "status": "done",
+      "goal": "Close extension/CLI parity gaps for provider, publishing, and marketplace flows; finish feedback learning loop UX; and harden end-to-end release candidate paths.",
+      "tasks": [
+        { "id": "P18-1", "title": "Apply learned score weights in live compile scoring path (reopens P15-5)", "status": "done", "dependsOn": ["P15-3"] },
+        { "id": "P18-2", "title": "Add extension Send to Provider command and persist execution artifacts (reopens P14-4/P14-5)", "status": "done", "dependsOn": ["P14-2", "P14-3"] },
+        { "id": "P18-3", "title": "Add CLI execute flow and provider config support (reopens P14-6)", "status": "done", "dependsOn": ["P14-3"] },
+        { "id": "P18-4", "title": "Surface aggregate feedback in artifact explorer (reopens P15-6)", "status": "done", "dependsOn": ["P15-4", "P18-1"] },
+        { "id": "P18-5", "title": "Add extension Publish Bundle command (reopens P16-4)", "status": "done", "dependsOn": ["P16-2", "P16-3"] },
+        { "id": "P18-6", "title": "Add CLI publish flow and publish-config support (reopens P16-6)", "status": "done", "dependsOn": ["P16-3"] },
+        { "id": "P18-7", "title": "Add extension Browse Marketplace command (reopens P17-5)", "status": "done", "dependsOn": ["P17-4"] },
+        { "id": "P18-8", "title": "Add CLI install-listing flow (reopens P17-6)", "status": "done", "dependsOn": ["P17-4"] },
+        { "id": "P18-9", "title": "Add cross-surface smoke + failure-path hardening tests for execute/feedback/publish/marketplace journeys", "status": "done", "dependsOn": ["P18-2", "P18-3", "P18-4", "P18-5", "P18-6", "P18-7", "P18-8"] }
+      ]
+    },
+    {
+      "id": "phase-19-release-candidate-and-packaging",
+      "title": "Release Candidate and Packaging",
+      "status": "done",
+      "goal": "Produce a repeatable release-candidate workflow with validated packaging, release notes, and stable-cut readiness.",
+      "tasks": [
+        { "id": "P19-1", "title": "Run release checklist and packaging verification for current build", "status": "done", "dependsOn": [] },
+        { "id": "P19-2", "title": "Prepare release notes focused on newly delivered provider/publish/marketplace flows", "status": "done", "dependsOn": ["P19-1"] },
+        { "id": "P19-3", "title": "Create preview release candidate artifact and validate install smoke path", "status": "done", "dependsOn": ["P19-1", "P19-2"] },
+        { "id": "P19-4", "title": "Finalize stable-release handoff checklist with reproducible commands", "status": "done", "dependsOn": ["P19-3"] }
+      ]
+    },
+    {
+      "id": "phase-20-api-input-validation-hardening",
+      "title": "API Input Validation Hardening",
+      "status": "active",
+      "goal": "Wire the existing JSON schemas in packages/schemas into runtime ajv validators. Enforce schema-level validation at critical API route boundaries. Add rejection-path test coverage.",
+      "tasks": [
+        { "id": "P20-1", "title": "Upgrade packages/schemas to export ajv 2020-12 compiled validators", "status": "done", "dependsOn": [] },
+        { "id": "P20-2", "title": "Normalize draft-07 schemas to 2020-12 with $defs", "status": "done", "dependsOn": ["P20-1"] },
+        { "id": "P20-3", "title": "Wire validateBrief and validateProfile into POST /compile", "status": "done", "dependsOn": ["P20-1"] },
+        { "id": "P20-4", "title": "Wire validateExecutionRequest into POST /execute", "status": "done", "dependsOn": ["P20-1"] },
+        { "id": "P20-5", "title": "Wire validateFeedbackInput into POST /feedback", "status": "done", "dependsOn": ["P20-1"] },
+        { "id": "P20-6", "title": "Add ajv-formats for date-time and uri format validation", "status": "done", "dependsOn": ["P20-1"] },
+        { "id": "P20-7", "title": "Add inputValidation.test.ts with 34 unit + integration rejection tests", "status": "done", "dependsOn": ["P20-3", "P20-4", "P20-5"] }
+      ]
     }
-  ]
-}

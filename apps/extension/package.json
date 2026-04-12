@@ -1,12 +1,39 @@
 {
   "name": "prompt-compiler-extension",
   "displayName": "Prompt Compiler",
+  "description": "Compile, refine, and export AI prompt bundles for music, video, and multimodal creative workflows — directly from VS Code.",
   "publisher": "local-dev",
   "version": "0.3.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ImmaBawzz/Prompt_Compiler_V3"
+  },
+  "homepage": "https://github.com/ImmaBawzz/Prompt_Compiler_V3#readme",
+  "bugs": {
+    "url": "https://github.com/ImmaBawzz/Prompt_Compiler_V3/issues"
+  },
+  "keywords": [
+    "prompt",
+    "AI",
+    "music",
+    "video",
+    "creative",
+    "compiler",
+    "suno",
+    "udio",
+    "flux",
+    "kling"
+  ],
   "engines": {
     "vscode": "^1.99.0"
   },
-  "categories": ["Other"],
+  "categories": ["Other", "Machine Learning"],
+  "galleryBanner": {
+    "color": "#0d1117",
+    "theme": "dark"
+  },
+  "preview": false,
   "activationEvents": [
     "onCommand:promptCompiler.openStudio",
     "onCommand:promptCompiler.exportSampleBrief",
@@ -28,6 +55,22 @@
       {
         "command": "promptCompiler.compileActiveJson",
         "title": "Prompt Compiler: Compile Active JSON Brief"
+      },
+      {
+        "command": "promptCompiler.sendToProvider",
+        "title": "Prompt Compiler: Send to Provider"
+      },
+      {
+        "command": "promptCompiler.publishBundle",
+        "title": "Prompt Compiler: Publish Bundle"
+      },
+      {
+        "command": "promptCompiler.showFeedbackAggregate",
+        "title": "Prompt Compiler: Show Feedback Aggregate"
+      },
+      {
+        "command": "promptCompiler.browseMarketplace",
+        "title": "Prompt Compiler: Browse Marketplace"
       },
       {
         "command": "promptCompiler.refreshArtifacts",
@@ -53,6 +96,16 @@
           "type": "string",
           "default": "http://localhost:8788",
           "description": "Base URL for hosted sync routes used by Prompt Compiler extension sync intent commands."
+        },
+        "promptCompiler.releaseChannel": {
+          "type": "string",
+          "enum": ["stable", "preview"],
+          "default": "stable",
+          "enumDescriptions": [
+            "Stable channel — production-ready features only.",
+            "Preview channel — includes experimental and in-development features."
+          ],
+          "description": "Release channel for Prompt Compiler. Preview enables experimental features before they reach stable."
         }
       }
     },
@@ -76,6 +129,23 @@
           "when": "view == promptCompilerArtifacts",
           "group": "navigation@1"
         }
+      ],
+      "view/item/context": [
+        {
+          "command": "promptCompiler.sendToProvider",
+          "when": "view == promptCompilerArtifacts && viewItem == promptCompiler.artifact",
+          "group": "inline"
+        },
+        {
+          "command": "promptCompiler.publishBundle",
+          "when": "view == promptCompilerArtifacts && viewItem == promptCompiler.artifact",
+          "group": "inline@1"
+        },
+        {
+          "command": "promptCompiler.showFeedbackAggregate",
+          "when": "view == promptCompilerArtifacts && viewItem == promptCompiler.artifact",
+          "group": "inline@2"
+        }
       ]
     }
   },
@@ -84,12 +154,13 @@
     "watch": "tsc -w -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/apps/extension/src/__tests__/*.test.js",
-    "package": "node -e \"console.log('Run vsce package after npm install -g @vscode/vsce')\""
+    "package": "npx vsce package --no-dependencies"
   },
   "dependencies": {
     "@prompt-compiler/core": "0.3.0"
   },
   "devDependencies": {
-    "@types/vscode": "^1.99.0"
+    "@types/vscode": "^1.99.0",
+    "@vscode/vsce": "^3.0.0"
   }
 }

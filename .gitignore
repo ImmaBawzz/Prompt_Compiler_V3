@@ -7,3 +7,5 @@ node_modules
 coverage
 *.vsix
 .prompt-compiler-cache
+.tmp/
+*.js.map

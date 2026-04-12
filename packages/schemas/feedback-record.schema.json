@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prompt-compiler.dev/schemas/feedback-record.schema.json",
+  "title": "FeedbackRecord",
+  "description": "An outcome feedback signal recorded against a compiled output.",
+  "type": "object",
+  "required": ["feedbackId", "bundleId", "profileId", "target", "score", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "feedbackId": {
+      "type": "string",
+      "description": "Unique feedback event ID (UUID)."
+    },
+    "bundleId": {
+      "type": "string"
+    },
+    "profileId": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string",
+      "enum": ["suno", "udio", "flux", "kling", "youtube", "generic"]
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "User-provided satisfaction score (1 = poor, 5 = excellent)."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional freetext notes from the user."
+    },
+    "acceptedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the user accepted or used this output downstream."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

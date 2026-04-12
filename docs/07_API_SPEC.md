@@ -1,6 +1,139 @@
 # API Spec
 
+## Authentication (Phase 10)
+
+All routes are public unless the server is configured with `authConfig: { bypassAuth: false }`.
+When auth is enforced, protected routes require a valid `Authorization: Bearer <token>` header.
+
+Protected routes: `/libraries/profile-assets` (GET + POST), `/libraries/profile-sync-manifest`, `/automation/jobs`.
+Public routes: `/health`, `/session/bootstrap`, `/compile`, `/compile/refine`, `/compile/auto`, `/workflows/run`.
+
+### Identity propagation
+
+Callers may include these headers to scope identity:
+- `x-account-id` — bound to `AuthContext.accountId`; validated against the request payload's `accountId` field on protected routes (account boundary enforcement returns 403 on mismatch)
+- `x-workspace-id` — bound to `AuthContext.workspaceId`
+
+### Error codes
+
+| Code          | HTTP | Meaning                                     |
+|---------------|------|---------------------------------------------|
+| BAD_REQUEST   | 400  | Missing or malformed input                  |
+| UNAUTHORIZED  | 401  | Missing or invalid bearer token             |
+| FORBIDDEN     | 403  | Valid identity but lacks access             |
+| VALIDATION_ERROR | 422 | Input passed parsing but failed domain checks |
+| NOT_FOUND     | 404  | Resource does not exist                     |
+| SERVER_ERROR  | 500  | Unexpected internal failure                 |
+
+### Server configuration
+
+```typescript
+createServer({
+  authConfig: {
+    bypassAuth: false,          // enforce token validation
+    apiKeys: ['your-api-key']   // static keys accepted as Bearer tokens
+  }
+})
+```
+
+Default (`bypassAuth` unset or true) — open pass-through for local dev.
+
+## Workspace Governance Routes (Phase 12)
+
+All workspace routes require the caller to be a member of the target workspace.
+The `x-account-id` header identifies the caller's account for RBAC checks.
+
+| Method | Path | Min Role | Description |
+|--------|------|----------|-------------|
+| GET | `/workspaces/:workspaceId/members` | viewer | List all workspace members |
+| POST | `/workspaces/:workspaceId/members` | owner | Add a member with role |
+| PATCH | `/workspaces/:workspaceId/members/:accountId` | owner | Update member role |
+| DELETE | `/workspaces/:workspaceId/members/:accountId` | owner | Remove member |
+
+Role hierarchy: `owner > editor > viewer`
+
+### Add member request shape
+```json
+{ "accountId": "acct-123", "role": "editor" }
+```
+
+### Update role request shape
+```json
+{ "role": "viewer" }
+```
+
 ## Base routes
+
+### `POST /compile/auto`
+Full automation from a single natural language prompt. Derives a `PromptBrief`, applies a default brand profile, compiles, and returns a complete `AutoCompileResult`. Optionally auto-applies refinement hints.
+
+Request shape:
+```json
+{
+  "prompt": "A dark cinematic lo-fi track for YouTube with heavy bass",
+  "autoRefine": true,
+  "targets": ["youtube", "suno"],
+  "profileOverride": { "brandName": "MyBrand" }
+}
+```
+
+Response shape:
+```json
+{
+  "ok": true,
+  "result": {
+    "derivedBrief": {},
+    "bundle": {},
+    "hints": [],
+    "refinedBundle": {}
+  }
+}
+```
+
+Only `prompt` is required. `autoRefine`, `targets`, and `profileOverride` are optional.
+
+### `POST /compile/refine`
+Applies `RefinementHint` objects to a brief and profile, then recompiles using the adjusted inputs.
+Returns the same `CompilationBundle` shape as `POST /compile`, with an added `REFINEMENT_APPLIED` diagnostic.
+
+Request shape:
+```json
+{
+  "brief": {},
+  "profile": {},
+  "hints": [
+    { "type": "add-constraint", "value": "no reverb tails", "note": "Improves clarity" }
+  ]
+}
+```
+
+### `POST /workflows/run`
+Executes a `WorkflowRecipe` step-by-step against a base brief and profile.
+Each step can override fields and apply refinement hints independently.
+Failed steps are marked without halting the remaining steps.
+
+Request shape:
+```json
+{
+  "recipe": { "id": "...", "name": "...", "steps": [] },
+  "brief": {},
+  "profile": {}
+}
+```
+
+Response shape:
+```json
+{
+  "ok": true,
+  "result": {
+    "recipeId": "...",
+    "completedAt": "...",
+    "steps": [
+      { "stepId": "step-1", "status": "succeeded", "bundle": {} }
+    ]
+  }
+}
+```
 
 ### `GET /health`
 Returns service status.

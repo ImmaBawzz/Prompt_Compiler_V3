@@ -62,3 +62,34 @@ button {
 button:hover {
   background: var(--vscode-button-hoverBackground);
 }
+
+.auto-panel textarea {
+  min-height: 80px;
+}
+
+.auto-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.auto-badge {
+  font-size: 10px;
+  font-weight: 400;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.auto-refine-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+}

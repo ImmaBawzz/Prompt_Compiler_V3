@@ -37,6 +37,7 @@ export interface TemplatePack {
 export interface CompileOptions {
   includeGenericOutput?: boolean;
   templatePack?: TemplatePack;
+  scoreWeights?: Partial<ScoreWeights>;
 }
 
 export interface Diagnostic {
@@ -46,6 +47,13 @@ export interface Diagnostic {
 }
 
 export interface ScoreCard {
+  clarity: number;
+  specificity: number;
+  styleConsistency: number;
+  targetReadiness: number;
+}
+
+export interface ScoreWeights {
   clarity: number;
   specificity: number;
   styleConsistency: number;
@@ -190,6 +198,65 @@ export interface UpsertHostedProfileLibraryInput {
   updatedAt?: string;
 }
 
+// --- Refinement ---
+
+export type RefinementHintType =
+  | 'boost-specificity'
+  | 'reduce-vagueness'
+  | 'add-constraint'
+  | 'adjust-tone'
+  | 'add-target'
+  | 'remove-target';
+
+export interface RefinementHint {
+  type: RefinementHintType;
+  /** When set, the hint applies only to this compilation target. */
+  target?: CompileTarget;
+  /** For add-constraint: the constraint text to append. */
+  value?: string;
+  /** Human-readable rationale surfaced in the Studio panel. */
+  note?: string;
+}
+
+export interface RefinementContext {
+  hints: RefinementHint[];
+  /** Original bundle used to suggest which hints to surface. */
+  priorBundle?: CompilationBundle;
+}
+
+// --- Workflow Recipes ---
+
+export type WorkflowStepStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
+
+export interface WorkflowStep {
+  id: string;
+  label?: string;
+  briefOverride?: Partial<PromptBrief>;
+  profileOverride?: Partial<BrandProfile>;
+  refinements?: RefinementHint[];
+  options?: CompileOptions;
+}
+
+export interface WorkflowRecipe {
+  id: string;
+  name: string;
+  description?: string;
+  steps: WorkflowStep[];
+}
+
+export interface WorkflowStepResult {
+  stepId: string;
+  status: WorkflowStepStatus;
+  bundle?: CompilationBundle;
+  error?: string;
+}
+
+export interface WorkflowRunResult {
+  recipeId: string;
+  completedAt: string;
+  steps: WorkflowStepResult[];
+}
+
 export type AutomationJobType = 'profile-library-sync' | 'compile-batch';
 
 export type AutomationJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
@@ -226,4 +293,211 @@ export interface CreateAutomationJobInput {
     code: string;
     message: string;
   } | null;
+}
+
+// --- Auto Compile ---
+
+export interface AutoCompileRequest {
+  /** Raw natural language description. No JSON required. */
+  prompt: string;
+  /** Override which compilation targets to emit. Defaults to heuristic detection. */
+  targets?: CompileTarget[];
+  /** Partial brand profile to merge over the default. */
+  profileOverride?: Partial<BrandProfile>;
+  /** When true, automatically apply derived refinement hints and include a refined bundle. */
+  autoRefine?: boolean;
+}
+
+export interface AutoCompileResult {
+  /** The PromptBrief derived from the natural language prompt. */
+  derivedBrief: PromptBrief;
+  /** The initial compilation bundle. */
+  bundle: CompilationBundle;
+  /** Refinement hints derived from the initial bundle. */
+  hints: RefinementHint[];
+  /** Refined bundle — present only when autoRefine is true and hints were derived. */
+  refinedBundle?: CompilationBundle;
+}
+
+// --- Provider Execution Bridge (Phase 14) ---
+
+export type ProviderTargetType = 'openai-compatible' | 'dry-run';
+
+export interface ProviderTarget {
+  /** Unique identifier for this provider config. */
+  id: string;
+  type: ProviderTargetType;
+  /** Base URL for the API (e.g. https://api.openai.com/v1). Required for openai-compatible. */
+  baseUrl?: string;
+  /** Model identifier to request (e.g. gpt-4o). */
+  model?: string;
+  /** API key — passed as Bearer token. Omit to use env var PROVIDER_API_KEY. */
+  apiKey?: string;
+  /** Extra headers to merge into the request. */
+  headers?: Record<string, string>;
+}
+
+export interface ExecutionRequest {
+  /** The compiled output text to send to the provider. */
+  content: string;
+  /** Which compile target this content was generated for. */
+  target: CompileTarget;
+  /** Bundle that produced this content. */
+  bundleId: string;
+  /** Profile that shaped this output. */
+  profileId: string;
+  /** Provider configuration. */
+  provider: ProviderTarget;
+  /** Max tokens to request from the provider. Defaults to 512. */
+  maxTokens?: number;
+  /** Temperature for provider call. Defaults to 0.7. */
+  temperature?: number;
+}
+
+export interface ExecutionResult {
+  requestId: string;
+  bundleId: string;
+  profileId: string;
+  target: CompileTarget;
+  provider: ProviderTargetType;
+  /** Estimated token count (always present; dry-run uses heuristic). */
+  estimatedTokens: number;
+  /** True when the call was a dry-run (no provider call was made). */
+  isDryRun: boolean;
+  /** Provider response text — present only after a live call. */
+  responseText?: string;
+  /** Finish reason from the provider. */
+  finishReason?: 'stop' | 'length' | 'error' | 'dry-run';
+  executedAt: string;
+  /** Latency in milliseconds. 0 for dry-run. */
+  latencyMs: number;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+// --- Feedback Scoring Loop (Phase 15) ---
+
+export interface FeedbackRecord {
+  /** Unique feedback event ID. */
+  feedbackId: string;
+  bundleId: string;
+  profileId: string;
+  /** Which target output this feedback applies to. */
+  target: CompileTarget;
+  /** 1 (poor) to 5 (excellent). */
+  score: 1 | 2 | 3 | 4 | 5;
+  /** Optional freetext notes from the user. */
+  notes?: string;
+  /** When the user accepted / used this output downstream. */
+  acceptedAt?: string;
+  createdAt: string;
+}
+
+export interface CreateFeedbackInput {
+  feedbackId?: string;
+  bundleId: string;
+  profileId: string;
+  target: CompileTarget;
+  score: number;
+  notes?: string;
+  acceptedAt?: string;
+  createdAt?: string;
+}
+
+export interface ScoreWeights {
+  clarity: number;
+  specificity: number;
+  styleConsistency: number;
+  targetReadiness: number;
+}
+
+export interface FeedbackAggregate {
+  profileId: string;
+  totalRecords: number;
+  averageScore: number;
+  acceptedCount: number;
+  derivedWeights: ScoreWeights;
+}
+
+// --- Publishing Automation (Phase 16) ---
+
+export type PublishTargetKind = 'webhook' | 'dry-run';
+
+export interface PublishTarget {
+  id: string;
+  kind: PublishTargetKind;
+  /** Destination URL for webhook targets. */
+  url?: string;
+  /** Secret used to sign the payload (HMAC-SHA256 in X-Signature header). */
+  secret?: string;
+  /** Extra headers to include in the publish request. */
+  headers?: Record<string, string>;
+}
+
+export type PublishJobStatus = 'queued' | 'dispatched' | 'delivered' | 'failed';
+
+export interface PublishJob {
+  jobId: string;
+  bundleId: string;
+  profileId: string;
+  target: PublishTarget;
+  status: PublishJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  /** HTTP status from the remote endpoint (if applicable). */
+  remoteStatus?: number;
+  /** Response body excerpt (first 500 chars). */
+  responseExcerpt?: string;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export interface CreatePublishJobInput {
+  jobId?: string;
+  bundleId: string;
+  profileId: string;
+  target: PublishTarget;
+  createdAt?: string;
+}
+
+// --- Profile Marketplace (Phase 17) ---
+
+export type MarketplaceListingType = 'brand-profile' | 'template-pack';
+
+export type MarketplaceListingStatus = 'draft' | 'published' | 'archived';
+
+export interface MarketplaceListingDocument {
+  listingId: string;
+  listingType: MarketplaceListingType;
+  status: MarketplaceListingStatus;
+  /** Account that published this listing. */
+  publishedBy: string;
+  displayName: string;
+  description?: string;
+  tags?: string[];
+  /** Entitlement required to publish. Browsing is always free. */
+  requiredEntitlement: Extract<EntitlementKey, 'pro.creator' | 'studio.team'>;
+  /** Serialized profile or template-pack payload. */
+  payload: VersionedBrandProfile | VersionedTemplatePack;
+  version: string;
+  publishedAt: string;
+  updatedAt: string;
+  /** Download / install count. */
+  installCount: number;
+}
+
+export interface CreateMarketplaceListingInput {
+  listingId?: string;
+  listingType: MarketplaceListingType;
+  publishedBy: string;
+  displayName: string;
+  description?: string;
+  tags?: string[];
+  payload: VersionedBrandProfile | VersionedTemplatePack;
+  version?: string;
+  publishedAt?: string;
 }

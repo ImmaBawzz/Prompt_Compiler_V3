@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prompt-compiler.dev/schemas/execution-request.schema.json",
+  "title": "ExecutionRequest",
+  "description": "Request to send a compiled prompt output to an AI provider endpoint.",
+  "type": "object",
+  "required": ["content", "target", "bundleId", "profileId", "provider"],
+  "additionalProperties": false,
+  "properties": {
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The compiled prompt text to send to the provider."
+    },
+    "target": {
+      "type": "string",
+      "enum": ["suno", "udio", "flux", "kling", "youtube", "generic"],
+      "description": "Compile target that produced this content."
+    },
+    "bundleId": {
+      "type": "string",
+      "description": "Bundle that produced this content."
+    },
+    "profileId": {
+      "type": "string",
+      "description": "Brand profile that shaped this output."
+    },
+    "provider": {
+      "$ref": "#/$defs/ProviderTarget"
+    },
+    "maxTokens": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 512
+    },
+    "temperature": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2,
+      "default": 0.7
+    }
+  },
+  "$defs": {
+    "ProviderTarget": {
+      "type": "object",
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["openai-compatible", "dry-run"]
+        },
+        "baseUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "Base URL for the provider API."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model identifier (e.g. gpt-4o-mini)."
+        },
+        "apiKey": {
+          "type": "string",
+          "description": "API key. Omit to use PROVIDER_API_KEY env var."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

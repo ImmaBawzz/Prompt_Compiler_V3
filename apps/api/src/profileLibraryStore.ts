@@ -3,6 +3,8 @@ import { HostedProfileLibraryDocument, UpsertHostedProfileLibraryInput, upsertHo
 export interface HostedProfileLibraryStore {
   get(accountId: string, workspaceId?: string): HostedProfileLibraryDocument | undefined;
   upsert(input: UpsertHostedProfileLibraryInput): HostedProfileLibraryDocument;
+  /** List all documents for the given accountId across all workspace scopes. */
+  list(accountId: string): HostedProfileLibraryDocument[];
 }
 
 function key(accountId: string, workspaceId?: string): string {
@@ -21,6 +23,15 @@ export function createInMemoryHostedProfileLibraryStore(): HostedProfileLibraryS
       const next = upsertHostedProfileLibraryDocument(documents.get(mapKey), input);
       documents.set(mapKey, next);
       return next;
+    },
+    list(accountId: string): HostedProfileLibraryDocument[] {
+      const results: HostedProfileLibraryDocument[] = [];
+      for (const [k, doc] of documents) {
+        if (k.startsWith(`${accountId}::`) || k === `${accountId}::*`) {
+          results.push(doc);
+        }
+      }
+      return results;
     }
   };
 }

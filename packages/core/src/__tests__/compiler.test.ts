@@ -120,6 +120,23 @@ test('compilePromptBundle applies template pack presets to outputs', () => {
   assert.ok(genericOutput.content.endsWith(' [/GENERIC]'));
 });
 
+test('compilePromptBundle applies scoreWeights to scorecard dimensions', () => {
+  const baseline = compilePromptBundle(brief, profile);
+  const weighted = compilePromptBundle(brief, profile, {
+    scoreWeights: {
+      clarity: 0.5,
+      specificity: 1.5,
+      styleConsistency: 1,
+      targetReadiness: 1
+    }
+  });
+
+  assert.ok(weighted.scoreCard.clarity < baseline.scoreCard.clarity);
+  assert.ok(weighted.scoreCard.specificity > baseline.scoreCard.specificity);
+  assert.equal(weighted.scoreCard.styleConsistency, baseline.scoreCard.styleConsistency);
+  assert.equal(weighted.scoreCard.targetReadiness, baseline.scoreCard.targetReadiness);
+});
+
 test('resolveEntitlements expands plan defaults and explicit grants deterministically', () => {
   const result = resolveEntitlements({
     plan: 'studio',

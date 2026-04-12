@@ -10,6 +10,7 @@
     "dev": "npm run build && node dist/apps/api/src/server.js"
   },
   "dependencies": {
-    "@prompt-compiler/core": "0.3.0"
+    "@prompt-compiler/core": "0.3.0",
+    "@prompt-compiler/schemas": "0.3.0"
   }
 }

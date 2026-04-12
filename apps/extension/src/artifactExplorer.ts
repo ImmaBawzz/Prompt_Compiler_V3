@@ -6,6 +6,7 @@ class ArtifactItem extends vscode.TreeItem {
     super(path.basename(uri.fsPath), vscode.TreeItemCollapsibleState.None);
     this.description = vscode.workspace.asRelativePath(uri);
     this.resourceUri = uri;
+    this.contextValue = 'promptCompiler.artifact';
     this.command = {
       command: 'vscode.open',
       title: 'Open Artifact',
@@ -46,6 +47,14 @@ export class ArtifactExplorerProvider implements vscode.TreeDataProvider<vscode.
   setArtifacts(artifactUris: vscode.Uri[], exportFolder: vscode.Uri): void {
     this.artifactUris = artifactUris;
     this.latestExportFolder = exportFolder;
+    this.onDidChangeTreeDataEmitter.fire();
+  }
+
+  addArtifact(artifactUri: vscode.Uri): void {
+    if (!this.artifactUris.some((existing) => existing.fsPath === artifactUri.fsPath)) {
+      this.artifactUris.push(artifactUri);
+    }
+
     this.onDidChangeTreeDataEmitter.fire();
   }
 

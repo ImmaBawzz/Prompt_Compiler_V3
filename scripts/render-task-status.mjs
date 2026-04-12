@@ -16,5 +16,7 @@ for (const phase of board.phases) {
   console.log(`${phase.id} — ${phase.title}`);
   console.log(`  status: ${phase.status}`);
   console.log(`  tasks: ${phase.tasks.length}`);
-  console.log(`  todo: ${counts.todo || 0}, active: ${counts.active || 0}, done: ${counts.done || 0}, blocked: ${counts.blocked || 0}`);
+  console.log(
+    `  todo: ${counts.todo || 0}, active: ${counts.active || 0}, done: ${counts.done || 0}, blocked: ${counts.blocked || 0}, deferred: ${counts.deferred || 0}, skipped: ${counts.skipped || 0}`
+  );
 }
