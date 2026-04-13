@@ -667,6 +667,46 @@ export function activate(context: vscode.ExtensionContext): void {
         void vscode.window.showErrorMessage(`Show Feedback Aggregate failed: ${message}`);
       }
     }),
+    // P30-5: Show learning timeline for a profiled bundle.
+    vscode.commands.registerCommand('promptCompiler.showLearningTimeline', async (item?: { resourceUri?: vscode.Uri; uri?: vscode.Uri }) => {
+      try {
+        const workspace = vscode.workspace.workspaceFolders?.[0];
+        if (!workspace) {
+          throw new Error('Open a workspace first.');
+        }
+
+        const selectedUri = item?.resourceUri ?? item?.uri;
+        const exportFolder =
+          inferExportFolderFromArtifact(selectedUri) ??
+          artifactExplorer.getLatestExportFolder();
+
+        if (!exportFolder) {
+          throw new Error('No export folder found. Export a bundle first or run this command from an artifact item.');
+        }
+
+        const compiledUri = vscode.Uri.joinPath(exportFolder, 'compiled.json');
+        const compiledRaw = await vscode.workspace.fs.readFile(compiledUri);
+        const bundle = JSON.parse(Buffer.from(compiledRaw).toString('utf8')) as {
+          profileId: string;
+        };
+
+        const base = hostedApiBase();
+        const timeline = await fetchJson<{ ok: true; result: unknown }>(
+          `${base}/learning/timeline?profileId=${encodeURIComponent(bundle.profileId)}`
+        );
+
+        const feedbackFolder = vscode.Uri.joinPath(exportFolder, 'feedback');
+        await vscode.workspace.fs.createDirectory(feedbackFolder);
+        const timelineFile = vscode.Uri.joinPath(feedbackFolder, `learning-timeline-${bundle.profileId}.json`);
+        await vscode.workspace.fs.writeFile(timelineFile, Buffer.from(`${JSON.stringify(timeline.result, null, 2)}\n`, 'utf8'));
+
+        artifactExplorer.addArtifact(timelineFile);
+        void vscode.window.showInformationMessage(`Learning timeline loaded for profile '${bundle.profileId}'.`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown learning timeline error';
+        void vscode.window.showErrorMessage(`Show Learning Timeline failed: ${message}`);
+      }
+    }),
     vscode.commands.registerCommand('promptCompiler.browseMarketplace', async () => {
       try {
         const workspace = vscode.workspace.workspaceFolders?.[0];
@@ -943,6 +983,77 @@ async function openStudio(context: vscode.ExtensionContext, artifactExplorer: Ar
         const errorMessage = error instanceof Error ? error.message : 'Unknown auto-compile error';
         panel.webview.postMessage({ type: 'error', message: errorMessage });
       }
+    }
+
+    // P29-1: Live streaming execution via SSE — dry-run provider, streams progress events to webview.
+    if (message.type === 'streamExecute') {
+      // Capture panel reference to use inside the async closure.
+      const livePanel = panel;
+      void (async () => {
+        try {
+          const brief = parseJsonOrThrow<PromptBrief>(message.brief, 'Brief');
+          const profile = parseJsonOrThrow<BrandProfile>(message.profile, 'Profile');
+          const bundle = compilePromptBundle(brief, profile, { includeGenericOutput: true });
+
+          const selectedOutput = bundle.outputs[0];
+          if (!selectedOutput) {
+            livePanel.webview.postMessage({ type: 'streamError', message: 'No compiled output found.' });
+            return;
+          }
+
+          const bundleId = `${bundle.briefId}-${bundle.generatedAt.replace(/[:.]/g, '-')}`;
+          const base = hostedApiBase();
+
+          const response = await fetch(`${base}/execute/stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              content: selectedOutput.content,
+              target: selectedOutput.target,
+              bundleId,
+              profileId: bundle.profileId,
+              provider: { id: 'dry-run-studio', type: 'dry-run' }
+            })
+          });
+
+          if (!response.ok || !response.body) {
+            livePanel.webview.postMessage({ type: 'streamError', message: `HTTP ${response.status}` });
+            return;
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            // SSE events are delimited by double newline.
+            const blocks = buffer.split('\n\n');
+            buffer = blocks.pop() ?? '';
+            for (const block of blocks) {
+              let eventName = '';
+              let dataStr = '';
+              for (const line of block.split('\n')) {
+                if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+                else if (line.startsWith('data: ')) dataStr = line.slice(6);
+              }
+              if (!dataStr) continue;
+              let data: unknown;
+              try { data = JSON.parse(dataStr); } catch { continue; }
+              if (eventName === 'completed') {
+                livePanel.webview.postMessage({ type: 'streamCompleted', data });
+              } else {
+                livePanel.webview.postMessage({ type: 'streamProgress', event: eventName, data });
+              }
+            }
+          }
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : 'Unknown stream execute error';
+          panel.webview.postMessage({ type: 'streamError', message: errorMessage });
+        }
+      })();
     }
   });
 }

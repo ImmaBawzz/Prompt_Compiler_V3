@@ -1,6 +1,6 @@
 {
   "project": "Prompt Compiler V3",
-  "currentPhase": "phase-28-streaming-execution-and-realtime-progress",
+  "currentPhase": "phase-31-bounded-learning-safe-gates",
   "phases": [
     {
       "id": "phase-0-foundation",
@@ -1371,7 +1371,7 @@
       "title": "Stripe Billing Integration"
     },
     {
-      "status": "active",
+      "status": "done",
       "goal": "Deliver streamed execution with realtime progress events so clients can show live operation state while keeping metering and entitlement behavior consistent.",
       "id": "phase-28-streaming-execution-and-realtime-progress",
       "tasks": [
@@ -1384,7 +1384,7 @@
           "title": "Add SSE execute stream API route"
         },
         {
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "P28-1"
           ],
@@ -1392,7 +1392,7 @@
           "title": "Add extension live progress surface"
         },
         {
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "P28-1"
           ],
@@ -1400,7 +1400,7 @@
           "title": "Add CLI stream execution mode"
         },
         {
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "P28-1"
           ],
@@ -1408,7 +1408,7 @@
           "title": "Unify provider progress telemetry model"
         },
         {
-          "status": "todo",
+          "status": "done",
           "dependsOn": [
             "P28-2",
             "P28-3"
@@ -1418,6 +1418,305 @@
         }
       ],
       "title": "Streaming Execution and Realtime Progress"
+    },
+    {
+      "status": "done",
+      "goal": "Complete cross-surface streaming parity (P28 closure), close all production blockers, and cut the first fully production-capable milestone release (M1).",
+      "id": "phase-29-production-hardening-m1-release",
+      "title": "Production Hardening & M1 Release Gate",
+      "tasks": [
+        {
+          "id": "P29-1",
+          "title": "Add extension live progress webview for POST /execute/stream",
+          "status": "done",
+          "dependsOn": ["P28-1"],
+          "note": "Real-time status badge, event log with provider timing, abort control. Closes P28-2."
+        },
+        {
+          "id": "P29-2",
+          "title": "Add CLI --stream flag with SSE event parsing",
+          "status": "done",
+          "dependsOn": ["P28-1"],
+          "note": "Human-readable stderr progress, clean JSON stdout result. Closes P28-3."
+        },
+        {
+          "id": "P29-3",
+          "title": "Unify provider progress telemetry event shape",
+          "status": "done",
+          "dependsOn": ["P28-1"],
+          "note": "Standardize started/progress/completed fields and token-usage across all 5 provider adapters. Closes P28-4."
+        },
+        {
+          "id": "P29-4",
+          "title": "Add cross-surface streaming smoke and failure-path tests",
+          "status": "done",
+          "dependsOn": ["P29-1", "P29-2", "P29-3"],
+          "note": "dry-run, live-mock, timeout/abort, auth-error. Closes P28-5."
+        },
+        {
+          "id": "P29-5",
+          "title": "Stripe webhook idempotency and payload validation hardening",
+          "status": "done",
+          "dependsOn": [],
+          "note": "Dedup by idempotency key, explicit schema validation, 8+ tests covering bad sig/duplicate/state transitions."
+        },
+        {
+          "id": "P29-6",
+          "title": "Add quota pre-guards on execute/publish/install before dispatch",
+          "status": "done",
+          "dependsOn": [],
+          "note": "Enforce limits before calling provider; add 402/429 rejection tests."
+        },
+        {
+          "id": "P29-7",
+          "title": "Add .env.example and deployment secrets documentation",
+          "status": "done",
+          "dependsOn": [],
+          "note": "Document STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and all required env vars."
+        },
+        {
+          "id": "P29-8",
+          "title": "Add SQLite PRAGMA user_version schema versioning to all three DDLs",
+          "status": "done",
+          "dependsOn": [],
+          "note": "Validate on startup; document migration process for schema changes."
+        },
+        {
+          "id": "P29-9",
+          "title": "M1 release gate: package, smoke, checklist sign-off",
+          "status": "done",
+          "dependsOn": ["P29-1","P29-2","P29-3","P29-4","P29-5","P29-6","P29-7","P29-8"],
+          "note": "npm run test green; VSIX installs; Stripe safety tests pass; .env.example committed."
+        }
+      ]
+    },
+    {
+      "status": "done",
+      "goal": "Replace in-memory feedback with durable SQLite persistence, add a learning audit trail, and surface learning metadata in bootstrap and extension UI. Foundation for all autonomous learning.",
+      "id": "phase-30-durable-feedback-learning-observability",
+      "title": "Durable Feedback Foundation & Learning Observability (M2)",
+      "tasks": [
+        {
+          "id": "P30-1",
+          "title": "Add createSqliteFeedbackStore() with FEEDBACK_STORE_TYPE env flag",
+          "status": "done",
+          "dependsOn": ["P29-9"],
+          "note": "feedback_records table; indexed on (profileId, createdAt) and (bundleId, createdAt); keep in-memory for local/test mode."
+        },
+        {
+          "id": "P30-2",
+          "title": "Add weight_derivations audit table and append on every deriveScoringWeightsFromFeedback call",
+          "status": "done",
+          "dependsOn": ["P30-1"],
+          "note": "Columns: derivedAt, inputRecordCount, priorWeights JSON, newWeights JSON, weightChanges per dimension, trigger enum."
+        },
+        {
+          "id": "P30-3",
+          "title": "Extend /session/bootstrap with learning block",
+          "status": "done",
+          "dependsOn": ["P30-1","P30-2"],
+          "note": "feedbackCount per profile, lastDerivedAt, currentWeights, pendingCandidates count, divergenceAlert flag."
+        },
+        {
+          "id": "P30-4",
+          "title": "Add learning metering domain and per-plan quota",
+          "status": "done",
+          "dependsOn": ["P30-1"],
+          "note": "domain: 'learning', action: 'shadow-evaluation'; free: 20/month, pro: 200, studio: unlimited."
+        },
+        {
+          "id": "P30-5",
+          "title": "Add weight derivation timeline view in extension artifact explorer",
+          "status": "done",
+          "dependsOn": ["P30-2","P30-3"],
+          "note": "Show when weights last changed, delta per dimension, input record count."
+        },
+        {
+          "id": "P30-6",
+          "title": "Add tests: SQLite feedback persistence, audit trail, bootstrap learning payload, learning quota",
+          "status": "done",
+          "dependsOn": ["P30-1","P30-2","P30-3","P30-4"]
+        },
+        {
+          "id": "P30-7",
+          "title": "M2 gate: feedback outlasts restart; audit row per derivation; bootstrap returns learning block; quota in snapshot",
+          "status": "done",
+          "dependsOn": ["P30-6"]
+        }
+      ]
+    },
+    {
+      "status": "todo",
+      "goal": "Add bounded weight derivation, divergence detection, weight versioning lifecycle, shadow evaluation pipeline, and operator-facing approve/discard/rollback controls. All learning from this point is gated and reversible.",
+      "id": "phase-31-bounded-learning-safe-gates",
+      "title": "Bounded Learning Adaptation & Safe Gates (M3)",
+      "tasks": [
+        {
+          "id": "P31-1",
+          "title": "Add LearnOpts type and update deriveScoringWeightsFromFeedback signature",
+          "status": "done",
+          "dependsOn": ["P30-7"],
+          "note": "maxWeightDelta, minSampleSize, decayFactor, cooldownMs, enableLearning. Defaults: delta=0.05, sample=5, cooldown=24h."
+        },
+        {
+          "id": "P31-2",
+          "title": "Implement per-dimension delta clamping and cooldown guard",
+          "status": "todo",
+          "dependsOn": ["P31-1"],
+          "note": "Skip derivation if within cooldownMs of prior; apply recency weighting (< 7d=1.0, 7-30d=0.7, >30d=0.3)."
+        },
+        {
+          "id": "P31-3",
+          "title": "Add divergence detection over last 10 derivations",
+          "status": "todo",
+          "dependsOn": ["P31-2"],
+          "note": "CV > 0.15 per dimension triggers learningDivergenceDetected audit event and sets divergenceAlert in bootstrap."
+        },
+        {
+          "id": "P31-4",
+          "title": "Add weight versioning lifecycle to HostedProfileLibraryDocument and weight_versions table",
+          "status": "todo",
+          "dependsOn": ["P31-1"],
+          "note": "columns: version, weights, derivedFrom hash, createdAt, status (candidate|active|rolled_back); activeWeightVersion pointer."
+        },
+        {
+          "id": "P31-5",
+          "title": "Add shadow evaluation pipeline: POST /admin/learning/shadow-evaluate",
+          "status": "todo",
+          "dependsOn": ["P31-4"],
+          "note": "Compile reference briefs with candidate vs baseline; compare avg scorecards; promotion criteria: no regression > -2%, min 5 evals, no divergence alert."
+        },
+        {
+          "id": "P31-6",
+          "title": "Add extension commands: approveLearningCandidate, discardLearningCandidate, rollbackWeights",
+          "status": "todo",
+          "dependsOn": ["P31-4","P31-5"],
+          "note": "Operator UX: promote, discard, rollback with audit; weight history panel in Studio webview."
+        },
+        {
+          "id": "P31-7",
+          "title": "Add tests: delta clamp, cooldown, divergence detection, shadow eval scoring, promote/discard/rollback lifecycle, cost deduction",
+          "status": "todo",
+          "dependsOn": ["P31-2","P31-3","P31-5","P31-6"]
+        },
+        {
+          "id": "P31-8",
+          "title": "M3 gate: rollback drill verified; divergence alert fires on oscillation; shadow eval metering in ledger",
+          "status": "todo",
+          "dependsOn": ["P31-7"]
+        }
+      ]
+    },
+    {
+      "status": "todo",
+      "goal": "Add configurable LearningMode per profile, scheduled batch recompute, responsive auto-proposal, and operator dashboard. Autonomous mode activates only after safety gates are consistently stable.",
+      "id": "phase-32-autonomous-learning-modes",
+      "title": "Autonomous Learning Modes (M4)",
+      "tasks": [
+        {
+          "id": "P32-1",
+          "title": "Add LearningMode enum to HostedProfileLibraryDocument",
+          "status": "todo",
+          "dependsOn": ["P31-8"],
+          "note": "Values: manual, manual-review, scheduled, responsive, autonomous. Default: manual. Owner/admin can change; viewer read-only."
+        },
+        {
+          "id": "P32-2",
+          "title": "Add POST /admin/learning/batch-recompute route (admin scope)",
+          "status": "todo",
+          "dependsOn": ["P32-1"],
+          "note": "Iterates profiles with mode != manual; applies bounded derivation; stores candidate; returns per-profile summary."
+        },
+        {
+          "id": "P32-3",
+          "title": "Add responsive candidate creation on POST /feedback",
+          "status": "todo",
+          "dependsOn": ["P32-1"],
+          "note": "For profiles with mode=responsive or autonomous: trigger async bounded derivation after cooldown + sample-size checks pass; emit learning.candidateCreated event."
+        },
+        {
+          "id": "P32-4",
+          "title": "Add autonomous auto-promotion after shadow eval gates pass",
+          "status": "todo",
+          "dependsOn": ["P32-3"],
+          "note": "For mode=autonomous: schedule shadow eval; if all criteria pass within 72h, auto-promote; suspend if divergenceAlert is true."
+        },
+        {
+          "id": "P32-5",
+          "title": "Add operator dashboard data endpoint and extension webview panel",
+          "status": "todo",
+          "dependsOn": ["P32-3","P32-4"],
+          "note": "Pending candidates, recent promotions, divergence alerts, learning budget; bulk approve/suspend actions."
+        },
+        {
+          "id": "P32-6",
+          "title": "Implement autonomous mode unlock criteria check",
+          "status": "todo",
+          "dependsOn": ["P32-4"],
+          "note": "Only unlock mode=autonomous if: M3 gate passed, 2 consecutive stable promotion cycles, no post-promotion regression."
+        },
+        {
+          "id": "P32-7",
+          "title": "Add tests: mode persistence, batch recompute, responsive candidate, auto-promotion happy path, divergence suspension, dashboard data",
+          "status": "todo",
+          "dependsOn": ["P32-2","P32-3","P32-4","P32-5","P32-6"]
+        },
+        {
+          "id": "P32-8",
+          "title": "M4 gate: all modes produce correct candidates; autonomous auto-promotes on green gates; suspends on divergence; batch of 5 profiles within budget",
+          "status": "todo",
+          "dependsOn": ["P32-7"]
+        }
+      ]
+    },
+    {
+      "status": "todo",
+      "goal": "Validate the autonomous learning system against real beta interaction data, tune thresholds, run security and privacy audit on learning endpoints, complete rollback drill, and cut the GA release.",
+      "id": "phase-33-beta-tuning-ga-readiness",
+      "title": "Beta Tuning & GA Readiness (M5)",
+      "tasks": [
+        {
+          "id": "P33-1",
+          "title": "Enable responsive mode for private beta cohort and collect feedback signals",
+          "status": "todo",
+          "dependsOn": ["P32-8"],
+          "note": "14-day collection window; measure acceptance uplift vs baseline; log all auto-promotion events."
+        },
+        {
+          "id": "P33-2",
+          "title": "Tune learning thresholds from beta data",
+          "status": "todo",
+          "dependsOn": ["P33-1"],
+          "note": "Adjust maxWeightDelta default, CV divergence threshold, and promotion criteria based on false-positive rate and acceptance impact."
+        },
+        {
+          "id": "P33-3",
+          "title": "Add POST /admin/learning/impact-report and impact regression test suite",
+          "status": "todo",
+          "dependsOn": ["P33-1"],
+          "note": "Compare acceptance rate before/after each autonomous promotion; flag negative-impact promotions automatically."
+        },
+        {
+          "id": "P33-4",
+          "title": "Security and privacy audit of all learning endpoints",
+          "status": "todo",
+          "dependsOn": ["P32-8"],
+          "note": "Confirm /admin/learning/* requires admin scope; no PII in audit logs beyond accountId; RBAC test: viewer cannot trigger learning ops."
+        },
+        {
+          "id": "P33-5",
+          "title": "Rollback drill: end-to-end autonomous promotion -> rollback -> re-promote; document in docs/15_MANUAL_SMOKE_CHECK.md",
+          "status": "todo",
+          "dependsOn": ["P33-2","P33-4"]
+        },
+        {
+          "id": "P33-6",
+          "title": "M5 GA gate: complete docs/17_RELEASE_CHECKLIST.md; update CHANGELOG; tag v1.0.0; verify GitHub Release auto-created with VSIX",
+          "status": "todo",
+          "dependsOn": ["P33-1","P33-2","P33-3","P33-4","P33-5"],
+          "note": "Go/no-go: beta no regression, zero divergence in production during beta, security audit green, rollback drill documented."
+        }
+      ]
     }
   ]
 }

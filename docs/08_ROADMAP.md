@@ -207,6 +207,160 @@ Deliver streamed execution with realtime progress events so clients can show liv
 - Successful live streamed execution now records execute-domain usage events with the same metering semantics as `POST /execute`.
 - Added API tests for dry-run stream events and live stream metering behavior in `apps/api/src/__tests__/phase28StreamingExecution.test.ts`.
 - Next: extension live progress UX and CLI stream mode for cross-surface parity.
+
+---
+
+## Milestone-Track Summary (Phases 29–33)
+
+The following five phases deliver the complete app experience and a progressively autonomous self-improvement system that learns from user interactions. Each phase closes with an explicit milestone release gate.
+
+| Milestone | Phase | Description | Target |
+|-----------|-------|-------------|--------|
+| **M1** | 29 | Production hardening + M1 release | Weeks 1–2 |
+| **M2** | 30 | Durable feedback + learning observability | Weeks 3–4 |
+| **M3** | 31 | Bounded adaptation + safe learning gates | Weeks 5–7 |
+| **M4** | 32 | Autonomous learning modes | Weeks 8–10 |
+| **M5** | 33 | Beta tuning + GA readiness | Weeks 11–12 |
+
+---
+
+## Phase 29 — Production Hardening & M1 Release Gate
+Complete the remaining Phase 28 cross-surface streaming UX, close all production blockers, and cut the first fully production-capable milestone release. This phase runs in two parallel lanes: streaming surface completion and ops hardening.
+
+**Streaming parity (P28 closure):**
+- Extension live progress webview for `POST /execute/stream`: real-time status badge, event log with provider timing, abort control.
+- CLI `--stream` flag with SSE event parsing, human-readable stderr progress, clean JSON stdout result.
+- Unified provider telemetry model: standardize `started/progress/completed` event shape and token-usage fields across all five provider adapters.
+- Cross-surface streaming smoke and failure-path tests (dry-run, live-mock, timeout/abort, auth-error scenarios).
+
+**Production blockers:**
+- Stripe webhook hardening: idempotency key deduplication, explicit payload schema validation, and rejection tests for bad signatures and duplicate events.
+- Quota pre-guard on `POST /execute`, `POST /publish/jobs`, `POST /marketplace/install`: enforce limits _before_ dispatching provider calls, not after; 402/429 tests.
+- Secrets and environment documentation: `.env.example` file with all required keys; `docs/` deployment setup guide.
+- SQLite schema versioning: `PRAGMA user_version` in all three DDLs; validated on app startup with version mismatch failure mode documented.
+
+**M1 gate (must all pass before advancing):**
+- `npm run test` green; streaming tests included.
+- Extension VSIX packages cleanly; install + compile + stream smoke passes.
+- Stripe safety test suite passes (8+ assertions).
+- `.env.example` committed; schema version documented.
+
+## Phase 30 — Durable Feedback Foundation & Learning Observability (M2)
+Replace the in-memory feedback store with a durable SQLite adapter, add a complete learning audit trail, and surface learning metadata in session bootstrap and the extension. This is the data foundation that all subsequent autonomous learning depends on.
+
+- Add `createSqliteFeedbackStore()` alongside the existing in-memory implementation; select via `FEEDBACK_STORE_TYPE` env flag (`memory` | `sqlite`).
+- `feedback_records` table with indexed queries on `(profileId, createdAt)` and `(bundleId, createdAt)`.
+- `weight_derivations` audit table: every call to `deriveScoringWeightsFromFeedback` appends a row with `derivedAt`, `inputRecordCount`, `priorWeights` (JSON), `newWeights` (JSON), `weightChanges` per dimension, and `trigger` (manual | scheduled | responsive).
+- Extend `/session/bootstrap` with a `learning` block: `feedbackCount` per profile, `lastDerivedAt`, `currentWeights`, `pendingCandidates` count, `divergenceAlert` flag.
+- Extension artifact explorer: add weight derivation timeline view (when weights last changed, by how much, from how many signals).
+- Add learning metering domain to usage ledger: `domain: 'learning'`, `action: 'shadow-evaluation'`; add plan quota (free: 20 evals/month, pro: 200, studio: unlimited).
+- Tests: SQLite feedback persistence, audit trail writes, bootstrap learning payload shape, learning quota enforcement.
+
+**M2 gate:**
+- Feedback outlasts API restart (SQLite confirmed via test).
+- Every weight derivation produces an audit row.
+- Bootstrap returns `learning` block with correct live values.
+- Learning quota appears in bootstrap quota snapshot.
+
+## Phase 31 — Bounded Learning Adaptation & Safe Gates (M3)
+Add safety controls that prevent runaway or adversarial weight drift while still allowing the model to improve measurably from interaction signals. All learning from this point uses bounded, versioned, gate-controlled mutations.
+
+**Bounded adaptation:**
+- `LearnOpts` type: `{ maxWeightDelta: number; minSampleSize: number; decayFactor: number; cooldownMs: number; enableLearning: boolean }`.
+- Modify `deriveScoringWeightsFromFeedback()` to accept `LearnOpts`; clamp per-dimension delta to `±maxWeightDelta`; require `minSampleSize` records before any update; skip if within `cooldownMs` of prior derivation.
+- Recency weighting: feedback < 7 days → weight 1.0; 7–30 days → 0.7; > 30 days → 0.3.
+- Default safe values: `maxWeightDelta: 0.05`, `minSampleSize: 5`, `cooldownMs: 86400000` (24 h).
+
+**Divergence detection:**
+- Track last 10 derivations in `weight_derivations`; compute coefficient of variation (stddev/mean) per dimension.
+- Emit `learningDivergenceDetected` audit event when CV > 0.15 for any dimension.
+- Bootstrap `divergenceAlert` flag set to `true` when any dimension exceeded threshold in the last 7 days.
+
+**Weight versioning lifecycle:**
+- Extend `HostedProfileLibraryDocument` with `weightVersions` array (`version`, `weights`, `derivedFrom` hash, `createdAt`, `status: 'candidate' | 'active' | 'rolled_back'`) and `activeWeightVersion` pointer.
+- `weight_versions` SQLite table with FK to profile.
+- New weights are always stored as `candidate`; promotion to `active` requires passing the evaluation gate.
+
+**Shadow evaluation pipeline:**
+- `POST /admin/learning/shadow-evaluate` compiles a bank of reference briefs with both candidate and baseline weights; compares scorecard averages.
+- Promotion criteria: candidate avg score ≥ baseline avg score − 2% on specificity and clarity; no divergence alert in prior 7 days; min 5 shadow compilations run.
+- Costs: shadow compile = 0.1 credits; deducted from learning quota domain.
+
+**Operator controls (Extension):**
+- `promptCompiler.approveLearningCandidate` — promotes candidate to active; logs approvedBy, approvedAt.
+- `promptCompiler.discardLearningCandidate` — marks candidate rolled_back; logs reason.
+- `promptCompiler.rollbackWeights` — reverts active version to prior; creates audit entry.
+- Weight history panel in Studio webview: list of versions, current active, shadow eval results.
+
+**Tests:** bounds enforcement (delta clamp), divergence detection math, cooldown guard, shadow eval scoring comparison, promote/discard/rollback lifecycle, cost deduction.
+
+**M3 gate:**
+- Inject 3 low-score feedback records → derivation produces delta ≤ 0.05 on all dimensions.
+- Inject oscillating signals → divergence alert fires.
+- Rollback drill: promote candidate, rollback to prior, verify active version reverted.
+- Shadow eval metering appears in usage ledger.
+
+## Phase 32 — Autonomous Learning Modes (M4)
+Enable fully autonomous self-improvement by adding configurable learning modes per workspace/profile, a scheduler, and a responsive auto-proposal pipeline. Autonomous mode activates only after all safety gates are stable.
+
+**Learning mode enum (per profile):**
+```
+type LearningMode =
+  | 'manual'         // User triggers derivation explicitly via extension command
+  | 'manual-review'  // Candidates proposed automatically; require human approval
+  | 'scheduled'      // Batch recompute on a configurable cron (default: daily)
+  | 'responsive'     // Candidate created on each new feedback event
+  | 'autonomous'     // Responsive + auto-promote when all gates pass
+```
+- `learningMode` field on `HostedProfileLibraryDocument`; default `'manual'` for all existing profiles.
+- Admin and owner roles can change mode; viewer role is read-only.
+
+**Scheduled batch learner:**
+- `POST /admin/learning/batch-recompute` (admin-only, requires `admin` auth scope): iterates all profiles with mode ≠ `manual`; applies bounded derivation; stores candidate; logs summary per profile.
+- Suitable for cron-job or Azure Functions timer trigger invocation.
+
+**Responsive pipeline:**
+- On `POST /feedback` (for profiles with mode `responsive` or `autonomous`): trigger async candidate derivation if cooldown + sample size gates pass; store candidate; emit `learning.candidateCreated` event.
+- For `autonomous` mode: schedule shadow eval; if all promotion criteria pass within 72 h, auto-promote candidate to active; log `autoPromotedAt`.
+- Safety override: if `divergenceAlert` is true on the profile, suspend auto-promotion and notify operator.
+
+**Operator dashboard (Extension webview):**
+- Pending candidates view: profile name, delta summary, shadow eval result, days pending.
+- Recent promotions: last 10 auto-promoted or manually approved, with impact score.
+- Divergence alerts panel: profiles currently suspended from autonomous promotion.
+- Budget overview: learning credits consumed this period vs quota.
+- Bulk actions: "Approve all safe candidates", "Suspend autonomous mode globally".
+
+**Autonomous mode activation criteria:**
+- Mode `autonomous` is only unlocked for a profile after: (a) at least one M3 milestone gate passed, (b) two consecutive promotion cycles completed without divergence alert, (c) post-promotion acceptance impact measured as ≥ 0% (no regression).
+
+**Tests:** mode enum persistence, batch recompute across N profiles, responsive candidate on feedback, auto-promotion happy path, divergence suspension, dashboard data shape.
+
+**M4 gate:**
+- `manual-review` + `scheduled` + `responsive` modes all produce correct candidates under test.
+- `autonomous` mode auto-promotes in test with mocked gates green, does NOT promote when divergence alert is set.
+- Batch recompute for 5 profiles creates 5 candidates, no budget overrun.
+- Dashboard data serializes correctly via API.
+
+## Phase 33 — Beta Tuning & GA Readiness (M5)
+Validate the autonomous learning system against real interaction data, tune thresholds, run security and privacy checks on all learning endpoints, complete the rollback drill, and cut the GA release.
+
+- **Private beta collection:** Enable `responsive` mode for a selected cohort; collect feedback signals against real compiled outputs; measure acceptance uplift vs baseline over 14 days.
+- **Threshold tuning:** Adjust `maxWeightDelta` default, divergence CV threshold, and promotion criteria based on false-positive divergence alerts and measured impact from beta.
+- **Impact regression suite:** `POST /admin/learning/impact-report` compares acceptance rate before and after each autonomous promotion across the beta cohort; flag negative-impact promotions.
+- **Security & privacy audit of learning endpoints:**
+  - Confirm `POST /admin/learning/*` routes require `admin` auth scope; add integration tests.
+  - Confirm audit log entries contain no PII beyond `accountId`; validate against `docs/11_SECURITY_PRIVACY.md`.
+  - Add RBAC test: viewer cannot trigger learning operations.
+- **Rollback drill:** Full end-to-end: autonomous promotion fires → rollback via extension command → verify prior weights active → re-promote → verify new weights active. Document in `docs/15_MANUAL_SMOKE_CHECK.md`.
+- **GA release checklist:** Complete all items in `docs/17_RELEASE_CHECKLIST.md`; update `CHANGELOG.md`; tag and push `v1.0.0` release; verify GitHub Release is auto-created with VSIX artifact.
+
+**M5 gate (GA go/no-go):**
+- Beta acceptance uplift ≥ 0% (no regression from autonomous learning).
+- Zero divergence alerts in production during beta period.
+- Security audit passes; admin-scope tests for all learning routes green.
+- Rollback drill documented and verified.
+- `npm run test` green; `npm run build` clean; release checklist all-checked.
 # Roadmap
 
 ## Status semantics

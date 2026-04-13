@@ -89,6 +89,10 @@
         "title": "Prompt Compiler: Show Feedback Aggregate"
       },
       {
+        "command": "promptCompiler.showLearningTimeline",
+        "title": "Prompt Compiler: Show Learning Timeline"
+      },
+      {
         "command": "promptCompiler.browseMarketplace",
         "title": "Prompt Compiler: Browse Marketplace"
       },
@@ -170,6 +174,11 @@
           "command": "promptCompiler.showFeedbackAggregate",
           "when": "view == promptCompilerArtifacts && viewItem == promptCompiler.artifact",
           "group": "inline@3"
+        },
+        {
+          "command": "promptCompiler.showLearningTimeline",
+          "when": "view == promptCompilerArtifacts && viewItem == promptCompiler.artifact",
+          "group": "inline@4"
         },
         {
           "command": "promptCompiler.startBundleReview",

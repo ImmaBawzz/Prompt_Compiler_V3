@@ -24,6 +24,8 @@ interface SqliteStatement {
   all(...params: unknown[]): Record<string, unknown>[];
 }
 
+const SCHEMA_VERSION = 1;
+
 const DDL = `
   CREATE TABLE IF NOT EXISTS usage_metering_events (
     event_id        TEXT PRIMARY KEY,
@@ -178,6 +180,12 @@ function buildWhereClause(accountId: string, filter?: UsageMeteringEventFilter):
 export function createSqliteUsageLedgerStore(dbPath: string): UsageLedgerStore & { close(): void } {
   const db = new DatabaseSync(dbPath);
   db.exec(DDL);
+  // P29-8: Set and verify schema version.
+  db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  const versionRow = db.prepare('PRAGMA user_version').get() as { user_version: number } | undefined;
+  if (!versionRow || versionRow.user_version !== SCHEMA_VERSION) {
+    throw new Error(`Usage ledger schema version mismatch: expected ${SCHEMA_VERSION}, got ${versionRow?.user_version ?? 'unknown'}`);
+  }
 
   const stmtAppend = db.prepare(`
     INSERT INTO usage_metering_events (

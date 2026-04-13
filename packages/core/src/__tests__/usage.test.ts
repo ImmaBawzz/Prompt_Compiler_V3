@@ -167,4 +167,9 @@ test('buildUsageQuotaSnapshot returns per-domain limits and remaining usage', ()
   assert.equal(quotas.publish.exhausted, true);
   assert.equal(quotas['marketplace-install'].limit, 3);
   assert.equal(quotas['marketplace-install'].remaining, 2);
+  // P30-4: learning domain should be included in quota snapshot
+  assert.equal(quotas.learning.limit, 10);
+  assert.equal(quotas.learning.used, 0);
+  assert.equal(quotas.learning.remaining, 10);
+  assert.equal(quotas.learning.exhausted, false);
 });

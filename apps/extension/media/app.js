@@ -1,4 +1,5 @@
 const vscode = acquireVsCodeApi();
+// @ts-check
 
 const briefInput = document.getElementById('briefInput');
 const profileInput = document.getElementById('profileInput');
@@ -12,6 +13,11 @@ const autoCompileBtn = document.getElementById('autoCompileBtn');
 const autoRefineCheck = document.getElementById('autoRefineCheck');
 
 let currentHints = [];
+let streamAbortController = null;
+const streamPanel = document.getElementById('streamPanel');
+const streamExecBtn = document.getElementById('streamExecBtn');
+const streamAbortBtn = document.getElementById('streamAbortBtn');
+const streamLog = document.getElementById('streamLog');
 
 const saved = vscode.getState();
 if (saved) {
@@ -86,6 +92,45 @@ refineBtn.addEventListener('click', () => {
   setStatus('Refining with hints...');
   persistState();
   vscode.postMessage({
+// P29-1: Show stream panel once user has interacted with compile/export.
+function revealStreamPanel() {
+  if (streamPanel) {
+    streamPanel.style.display = '';
+  }
+}
+
+// P29-1: Append a log entry to the stream log list.
+function appendStreamLog(text, className) {
+  if (!streamLog) return;
+  const li = document.createElement('li');
+  li.textContent = text;
+  if (className) li.className = className;
+  streamLog.appendChild(li);
+  li.scrollIntoView({ block: 'nearest' });
+}
+
+if (streamExecBtn) {
+  streamExecBtn.addEventListener('click', () => {
+    if (streamLog) streamLog.innerHTML = '';
+    appendStreamLog('Connecting…', 'stream-pending');
+    if (streamAbortBtn) streamAbortBtn.style.display = '';
+    streamAbortController = new AbortController();
+    vscode.postMessage({
+      type: 'streamExecute',
+      brief: briefInput ? briefInput.value : '',
+      profile: profileInput ? profileInput.value : '',
+      signal: null // AbortController lives in extension context
+    });
+  });
+}
+
+if (streamAbortBtn) {
+  streamAbortBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'streamAbort' });
+    if (streamAbortBtn) streamAbortBtn.style.display = 'none';
+    appendStreamLog('Aborted by user.', 'stream-error');
+  });
+}
     type: 'refine',
     brief: briefInput.value,
     profile: profileInput.value,
@@ -118,6 +163,7 @@ window.addEventListener('message', (event) => {
     setStatus(`Compiled successfully. Warnings: ${warningCount}.`);
     persistState();
   }
+    revealStreamPanel();
 
   if (message.type === 'autoCompiled') {
     const r = message.payload;
@@ -126,6 +172,27 @@ window.addEventListener('message', (event) => {
     const hintCount = (r?.hints ?? []).length;
     setStatus(`Auto-compiled. Warnings: ${warningCount}. Hints: ${hintCount}.`);
     if (r?.derivedBrief) {
+  // P29-1: Stream Execute progress events from extension.
+  if (message.type === 'streamProgress') {
+    const stage = (message.data && message.data.stage) ? String(message.data.stage) : String(message.event || '');
+    appendStreamLog(`[${message.event || 'progress'}] ${stage}`, 'stream-progress');
+  }
+
+  if (message.type === 'streamCompleted') {
+    if (streamAbortBtn) streamAbortBtn.style.display = 'none';
+    const telemetry = message.data && message.data.telemetry;
+    const summary = telemetry
+      ? `provider=${telemetry.provider} latency=${telemetry.latencyMs ?? '—'}ms tokens=${telemetry.estimatedTokens ?? '—'}`
+      : 'completed';
+    appendStreamLog(`Completed. ${summary}`, 'stream-done');
+    setStatus('Stream Execute completed.');
+  }
+
+  if (message.type === 'streamError') {
+    if (streamAbortBtn) streamAbortBtn.style.display = 'none';
+    appendStreamLog(`Error: ${message.message}`, 'stream-error');
+    setStatus('Stream Execute failed.');
+  }
       briefInput.value = JSON.stringify(r.derivedBrief, null, 2);
     }
     showHints(r?.hints ?? []);

@@ -22,6 +22,8 @@ interface SqliteStatement {
   get(...params: unknown[]): Record<string, unknown> | undefined;
 }
 
+const SCHEMA_VERSION = 1;
+
 const DDL = `
   CREATE TABLE IF NOT EXISTS billing_accounts (
     account_id                  TEXT PRIMARY KEY,
@@ -127,6 +129,12 @@ function mergeBillingAccount(existing: BillingAccountRecord | undefined, input: 
 export function createSqliteBillingAccountStore(dbPath: string): BillingAccountStore & { close(): void } {
   const db = new DatabaseSync(dbPath);
   db.exec(DDL);
+  // P29-8: Set and verify schema version.
+  db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  const versionRow = db.prepare('PRAGMA user_version').get() as { user_version: number } | undefined;
+  if (!versionRow || versionRow.user_version !== SCHEMA_VERSION) {
+    throw new Error(`Billing account schema version mismatch: expected ${SCHEMA_VERSION}, got ${versionRow?.user_version ?? 'unknown'}`);
+  }
 
   const stmtGet = db.prepare('SELECT * FROM billing_accounts WHERE account_id = ?');
   const stmtGetByCustomer = db.prepare('SELECT * FROM billing_accounts WHERE stripe_customer_id = ?');

@@ -188,7 +188,8 @@ test('buildHostedSessionBootstrap includes usage summary and quota snapshot when
       totalsByDomain: {
         execute: 2,
         publish: 0,
-        'marketplace-install': 1
+        'marketplace-install': 1,
+        learning: 0
       },
       totalsByUnit: {
         request: 3,
@@ -199,7 +200,8 @@ test('buildHostedSessionBootstrap includes usage summary and quota snapshot when
     usageQuotas: {
       execute: { limit: 2, used: 2, remaining: 0, exhausted: true },
       publish: { limit: 0, used: 0, remaining: 0, exhausted: true },
-      'marketplace-install': { limit: 3, used: 1, remaining: 2, exhausted: false }
+      'marketplace-install': { limit: 3, used: 1, remaining: 2, exhausted: false },
+      learning: { limit: 10, used: 0, remaining: 10, exhausted: false }
     }
   });
 

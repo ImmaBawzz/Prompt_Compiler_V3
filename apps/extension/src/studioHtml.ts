@@ -68,6 +68,16 @@ export function getStudioHtml(
           <ul id="hintsList"></ul>
           <button id="refineBtn">Apply Hints &amp; Refine</button>
         </section>
+
+        <section class="panel stream-panel" id="streamPanel" style="display:none">
+          <h2>Stream Execute <span class="auto-badge">live</span></h2>
+          <p class="stream-hint">Streams a dry-run execution in real time via SSE. The local API server must be running.</p>
+          <div class="stream-actions">
+            <button id="streamExecBtn">Stream Execute (Dry Run)</button>
+            <button id="streamAbortBtn" style="display:none">Abort</button>
+          </div>
+          <ul id="streamLog" class="stream-log"></ul>
+        </section>
       </div>
       <script nonce="${nonce}" src="${scriptUri}"></script>
     </body>

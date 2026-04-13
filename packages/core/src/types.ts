@@ -554,7 +554,7 @@ export interface CreateBundleReviewDecisionInput {
 
 // --- Commercial Readiness Layer (Phase 22) ---
 
-export type UsageMeteringDomain = 'execute' | 'publish' | 'marketplace-install';
+export type UsageMeteringDomain = 'execute' | 'publish' | 'marketplace-install' | 'learning';
 
 export type UsageMeteringUnit = 'request' | 'token';
 

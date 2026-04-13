@@ -13,7 +13,7 @@ import {
 } from './types';
 
 const VALID_UNITS: readonly UsageMeteringUnit[] = ['request', 'token'];
-const VALID_DOMAINS: readonly UsageMeteringDomain[] = ['execute', 'publish', 'marketplace-install'];
+const VALID_DOMAINS: readonly UsageMeteringDomain[] = ['execute', 'publish', 'marketplace-install', 'learning'];
 
 export const USAGE_DOMAIN_QUOTA_LIMITS: Record<UsageMeteringDomain, Record<AccountPlan, number>> = {
   execute: {
@@ -30,6 +30,11 @@ export const USAGE_DOMAIN_QUOTA_LIMITS: Record<UsageMeteringDomain, Record<Accou
     free: 1,
     pro: 3,
     studio: 5
+  },
+  learning: {
+    free: 0,
+    pro: 10,
+    studio: 50
   }
 };
 
@@ -46,7 +51,7 @@ export function createUsageMeteringEvent(input: CreateUsageMeteringEventInput): 
     throw new Error('createUsageMeteringEvent: accountId is required.');
   }
   if (!input.domain || !isValidDomain(input.domain)) {
-    throw new Error('createUsageMeteringEvent: domain must be execute, publish, or marketplace-install.');
+    throw new Error('createUsageMeteringEvent: domain must be execute, publish, marketplace-install, or learning.');
   }
   if (!input.action) {
     throw new Error('createUsageMeteringEvent: action is required.');
@@ -118,7 +123,8 @@ export function buildUsageAccountSummary(
   const totalsByDomain: UsageAccountSummary['totalsByDomain'] = {
     execute: 0,
     publish: 0,
-    'marketplace-install': 0
+    'marketplace-install': 0,
+    learning: 0
   };
   const totalsByUnit: UsageAccountSummary['totalsByUnit'] = {
     request: 0,

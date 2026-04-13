@@ -10,6 +10,72 @@
 - blockers: none
 
 - date: 2026-04-13
+- phase: 29/30 handoff (P29-9 complete, Phase 30 foundation started)
+- completed:
+  - P29-9 M1 release gate verification completed:
+    - packaged VSIX at apps/extension/prompt-compiler-extension-0.3.0.vsix
+    - manual smoke checks executed for CLI sample output, API health, and API compile route
+    - repo build + test suite passed after packaging and follow-on changes
+  - added durable SQLite feedback store in apps/api/src/sqliteFeedbackStore.ts:
+    - feedback_records table with profile and bundle indexes
+    - weight_derivations audit table with prior/new weights and per-dimension deltas
+    - schema versioning via PRAGMA user_version guard
+    - LearningAwareFeedbackStore with getLearningSummary(profileId)
+  - wired feedback storage mode selection in server startup using FEEDBACK_STORE_TYPE and FEEDBACK_STORE_SQLITE
+  - extended GET /session/bootstrap to include a learning block when profileId query is supplied
+  - added tests in apps/api/src/__tests__/phase30DurableFeedback.test.ts for:
+    - sqlite feedback persistence
+    - derivation-backed learning summary
+    - bootstrap learning payload
+  - updated .env.example with FEEDBACK_STORE_SQLITE
+  - repo test suite green after changes: API 152/152, Extension 6/6, CLI 8/8, Core 127/127
+- next: finish remaining Phase 30 scope (learning metering domain/quota and extension timeline view), then complete M2 gate tasks
+- blockers: extension interactive smoke step (Extension Development Host compile/export walkthrough) remains manual
+
+- date: 2026-04-13
+- phase: 30 / durable feedback foundation & M2 gate (P30-4 through P30-7)
+- completed:
+  - P30-4: Added 'learning' as 4th UsageMeteringDomain in packages/core/src/types.ts and packages/core/src/usage.ts
+    - quota limits: free=0, pro=10, studio=50 shadow-evaluations/month
+    - updated VALID_DOMAINS array, USAGE_DOMAIN_QUOTA_LIMITS, error message, and totalsByDomain init
+    - added learning quota pre-check to POST /feedback (403 when free plan exhausted in hosted mode)
+    - added learning/shadow-evaluation metering event after successful feedback save
+  - P30-5: Added GET /learning/timeline route to server.ts that delegates to feedbackStore.getLearningSummary()
+    - added promptCompiler.showLearningTimeline command to extension.ts (mirrors showFeedbackAggregate pattern)
+    - added command declaration and inline@4 menu item to apps/extension/package.json
+  - P30-6: Extended test coverage across 4 test files:
+    - phase30DurableFeedback.test.ts: +3 tests (free plan 403, pro plan meter event, /learning/timeline 200)
+    - packages/core/src/__tests__/usage.test.ts: added learning domain assertions to buildUsageQuotaSnapshot test
+    - packages/core/src/__tests__/compiler.test.ts: added learning key to inline totalsByDomain and usageQuotas objects
+    - apps/api/src/__tests__/sqliteUsageLedgerStore.test.ts: added learning: 0 domain assertion
+  - P30-7: M2 gate closed — all criteria verified:
+    - feedback outlasts restart: ✓ (SQLite persistence test)
+    - audit row per derivation: ✓ (weight_derivations table + getLearningSummary)
+    - bootstrap returns learning block: ✓ (/session/bootstrap test)
+    - quota in snapshot: ✓ (learning domain in buildUsageQuotaSnapshot)
+    - full test suite green: API 155/155, Core 127/127, Extension 6/6
+  - TASK_BOARD.json: P30-4/P30-5/P30-6/P30-7 marked done; phase-30 status=done; currentPhase advanced to phase-31
+- next: Phase 31 — Bounded Learning Adaptation & Safe Gates (P31-1+)
+- blockers: none
+
+- date: 2026-04-13
+- phase: 29 / production hardening & M1 release gate (P29-1 through P29-8)
+- completed:
+  - P29-1 (closes P28-2): Added streaming panel to Studio webview HTML (`studioHtml.ts`), streaming button/log/abort handlers in `media/app.js`, and `streamExecute` message handler in `extension.ts` `openStudio()` that fetches `/execute/stream`, parses SSE events via ReadableStream.getReader, and pipes `streamProgress`/`streamCompleted`/`streamError` back to the webview
+  - P29-2 (closes P28-3): Added `--stream` flag to `CliArgs` interface, `toCliArgs()`, `printHelp()`, and new `executeStreamFromCompileResult()` function in `packages/cli/src/index.ts` that reads SSE events line-by-line, prints progress to stderr, and returns the final result; wired into `main()` dispatch
+  - P29-3 (closes P28-4): Enriched `writeSseEvent(res, 'completed', ...)` in `/execute/stream` handler with `telemetry: { provider, isDryRun, latencyMs, estimatedTokens, completedAt }` block — unified shape across all provider adapters
+  - P29-4 (closes P28-5): Created `apps/api/src/__tests__/phase29ProductionHardening.test.ts` with 9 tests covering streaming telemetry shape, malformed-body 400, event ordering, Stripe idempotency, bad-signature 401, and quota pre-guard 403 for execute/publish
+  - P29-5: Added `processedStripeEventIds = new Set<string>()` inside `createServer` closure; idempotency guard checks/adds `payload.id` before processing Stripe webhook switch — returns `{ alreadyProcessed: true, eventId }` on duplicate
+  - P29-6: Confirmed and tested that `requireWithinDomainQuota` pre-guards exist on execute/stream, execute, publish/jobs, and marketplace/install routes — no new code required; only tests added
+  - P29-7: Expanded `.env.example` at workspace root with all required variables: PORT, store types/paths, STRIPE_WEBHOOK_SECRET, STRIPE_SECRET_KEY, STRIPE_PUBLIC_KEY, AUTH_BYPASS, ALLOWED_ORIGINS, DATA_DIR
+  - P29-8: Added `SCHEMA_VERSION = 1` constant and `db.exec('PRAGMA user_version = 1')` + version read-back check in both `createSqliteUsageLedgerStore` and `createSqliteBillingAccountStore`; mismatch throws with descriptive error
+  - TypeScript build clean (no errors across all 5 packages)
+  - Full test suite green: API 149/149, Extension 6/6, CLI 8/8, Core 127/127 (total: 9 new tests added)
+- next: P29-9 M1 release gate sign-off (VSIX package, manual smoke check), then Phase 30 durable feedback foundation
+- blockers: none
+
+- date: 2026-04-13
+- phase: 28 / streaming execution and realtime progress (P28-1)
 - phase: 27 / stripe billing integration (P27-5)
 - completed:
   - added `createSqliteBillingAccountStore()` in `apps/api/src/sqliteBillingAccountStore.ts` with durable per-account billing storage and Stripe customer lookup support

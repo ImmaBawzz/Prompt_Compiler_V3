@@ -60,6 +60,7 @@ test('SQLite usage ledger appends/lists/summarizes with filters', () => {
     assert.equal(summary.totalsByDomain.execute, 1);
     assert.equal(summary.totalsByDomain.publish, 2);
     assert.equal(summary.totalsByDomain['marketplace-install'], 0);
+    assert.equal(summary.totalsByDomain.learning, 0);
     assert.equal(summary.totalsByUnit.request, 3);
   } finally {
     store.close();

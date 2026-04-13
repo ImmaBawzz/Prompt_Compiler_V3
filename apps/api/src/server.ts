@@ -79,6 +79,7 @@ import {
   BillingSubscriptionStatus,
   createInMemoryBillingAccountStore
 } from './billingAccountStore';
+import type { LearningAwareFeedbackStore } from './sqliteFeedbackStore';
 import { createInMemoryHostedProfileLibraryStore, HostedProfileLibraryStore } from './profileLibraryStore';
 import { createFileHostedProfileLibraryStore } from './fileProfileLibraryStore';
 import { createInMemoryWorkspaceMemberStore, WorkspaceMemberStore } from './workspaceMemberStore';
@@ -250,6 +251,46 @@ function writeSseEvent(res: ServerResponse, event: string, data: unknown): void 
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+interface BootstrapLearningBlock {
+  profileId: string;
+  feedbackCount: number;
+  lastDerivedAt: string | null;
+  currentWeights: {
+    clarity: number;
+    specificity: number;
+    styleConsistency: number;
+    targetReadiness: number;
+  };
+  pendingCandidates: number;
+  divergenceAlert: boolean;
+}
+
+function resolveBootstrapLearningBlock(feedbackStore: FeedbackStore, profileId: string): BootstrapLearningBlock {
+  const learningStore = feedbackStore as Partial<LearningAwareFeedbackStore>;
+  if (typeof learningStore.getLearningSummary === 'function') {
+    const summary = learningStore.getLearningSummary(profileId);
+    return {
+      profileId: summary.profileId,
+      feedbackCount: summary.feedbackCount,
+      lastDerivedAt: summary.lastDerivedAt,
+      currentWeights: summary.currentWeights,
+      pendingCandidates: summary.pendingCandidates,
+      divergenceAlert: summary.divergenceAlert
+    };
+  }
+
+  const records = feedbackStore.getByProfile(profileId);
+  const aggregate = feedbackStore.getAggregate(profileId);
+  return {
+    profileId,
+    feedbackCount: records.length,
+    lastDerivedAt: null,
+    currentWeights: aggregate.derivedWeights,
+    pendingCandidates: 0,
+    divergenceAlert: false
+  };
+}
+
 function parseBootstrapQuery(url: URL):
   | { ok: true; value: Parameters<typeof buildHostedSessionBootstrap>[0] }
   | { ok: false; error: ApiError } {
@@ -393,6 +434,9 @@ export function createServer(options: ServerOptions = {}): http.Server {
   const usageLedgerStore = options.usageLedgerStore ?? createInMemoryUsageLedgerStore();
   const billingAccountStore = options.billingAccountStore ?? createInMemoryBillingAccountStore();
 
+  // P29-5: Track processed Stripe webhook event IDs for idempotency (in-memory, sufficient for process lifetime).
+  const processedStripeEventIds = new Set<string>();
+
   return http.createServer(async (req, res) => {
     const url = requestUrl(req);
 
@@ -431,6 +475,7 @@ export function createServer(options: ServerOptions = {}): http.Server {
       const usageQuotas = usageSummary
         ? buildUsageQuotaSnapshot(usageSummary, bootstrapPlan, query.value?.grantedEntitlements)
         : undefined;
+      const learningProfileId = url.searchParams.get('profileId') ?? undefined;
 
       const bootstrap = buildHostedSessionBootstrap({
         ...query.value,
@@ -440,7 +485,14 @@ export function createServer(options: ServerOptions = {}): http.Server {
         usageQuotas
       });
 
-      json(res, 200, { ok: true, result: bootstrap });
+      const result = learningProfileId
+        ? {
+            ...bootstrap,
+            learning: resolveBootstrapLearningBlock(feedbackStore, learningProfileId)
+          }
+        : bootstrap;
+
+      json(res, 200, { ok: true, result });
       return;
     }
 
@@ -579,6 +631,15 @@ export function createServer(options: ServerOptions = {}): http.Server {
         if (!payload?.type || !payload.data?.object) {
           errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Stripe webhook must include type and data.object.' });
           return;
+        }
+
+        // P29-5: Idempotency guard — silently ack duplicate webhook event IDs.
+        if (payload.id) {
+          if (processedStripeEventIds.has(payload.id)) {
+            json(res, 200, { ok: true, result: { received: true, alreadyProcessed: true, eventId: payload.id } });
+            return;
+          }
+          processedStripeEventIds.add(payload.id);
         }
 
         const object = payload.data.object;
@@ -1307,7 +1368,16 @@ export function createServer(options: ServerOptions = {}): http.Server {
           });
         }
 
-        writeSseEvent(res, 'completed', { result });
+        // P29-3: Unified provider telemetry on completed event.
+        const resultObj = result as unknown as Record<string, unknown>;
+        const telemetry = {
+          provider: request.provider.type,
+          isDryRun,
+          latencyMs: typeof resultObj['latencyMs'] === 'number' ? resultObj['latencyMs'] : null,
+          estimatedTokens: typeof resultObj['estimatedTokens'] === 'number' ? resultObj['estimatedTokens'] : null,
+          completedAt: new Date().toISOString()
+        };
+        writeSseEvent(res, 'completed', { result, telemetry });
         res.end();
       } catch (error) {
         if (!streamStarted) {
@@ -1510,7 +1580,43 @@ export function createServer(options: ServerOptions = {}): http.Server {
           return;
         }
 
+        // P30-4: Learning quota enforcement — block free-plan accounts once limit is reached.
+        const feedbackAccountId = authCtx.accountId ?? (req.headers['x-account-id'] as string | undefined);
+        if (feedbackAccountId && payload.mode === 'hosted') {
+          const learningQuotaError = requireWithinDomainQuota({
+            usageLedgerStore,
+            accountId: feedbackAccountId,
+            domain: 'learning',
+            plan: payload.plan,
+            mode: payload.mode,
+            entitlements: payload.entitlements
+          });
+          if (learningQuotaError) {
+            errorResponse(res, 403, learningQuotaError);
+            return;
+          }
+        }
+
         const saved = feedbackStore.save(record);
+
+        // P30-4: Meter a learning/shadow-evaluation event after successful save.
+        if (feedbackAccountId) {
+          const learningEvent = createUsageMeteringEvent({
+            accountId: feedbackAccountId,
+            domain: 'learning',
+            action: 'shadow-evaluation',
+            unitsConsumed: 1,
+            unit: 'request',
+            bundleId: record.bundleId,
+            profileId: record.profileId,
+            plan: payload.plan,
+            mode: payload.mode,
+            entitlements: payload.entitlements,
+            occurredAt: record.createdAt
+          });
+          usageLedgerStore.append(learningEvent);
+        }
+
         json(res, 201, { ok: true, result: saved });
       } catch (error) {
         if (error instanceof SyntaxError) {
@@ -1520,6 +1626,22 @@ export function createServer(options: ServerOptions = {}): http.Server {
         const message = error instanceof Error ? error.message : 'Unknown error';
         errorResponse(res, 500, { code: 'SERVER_ERROR', message });
       }
+      return;
+    }
+
+    // P30-5: GET /learning/timeline — return learning summary for a profile.
+    if (req.method === 'GET' && url.pathname === '/learning/timeline') {
+      const profileId = url.searchParams.get('profileId');
+      if (!profileId) {
+        errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Query must include profileId.' });
+        return;
+      }
+      const learningStore = feedbackStore as unknown as import('./sqliteFeedbackStore').LearningAwareFeedbackStore;
+      if (typeof learningStore.getLearningSummary !== 'function') {
+        errorResponse(res, 501, { code: 'SERVER_ERROR', message: 'Learning timeline not available with the current feedback store.' });
+        return;
+      }
+      json(res, 200, { ok: true, result: learningStore.getLearningSummary(profileId) });
       return;
     }
 
@@ -2300,6 +2422,8 @@ if (require.main === module) {
   const usageSqlitePath = process.env['USAGE_LEDGER_SQLITE'];
   const billingStoreType = process.env['BILLING_ACCOUNT_STORE_TYPE'] ?? 'auto';
   const billingSqlitePath = process.env['BILLING_ACCOUNT_STORE_SQLITE'];
+  const feedbackStoreType = process.env['FEEDBACK_STORE_TYPE'] ?? 'memory';
+  const feedbackSqlitePath = process.env['FEEDBACK_STORE_SQLITE'];
 
   let store: HostedProfileLibraryStore;
   let storageMode: string;
@@ -2349,10 +2473,25 @@ if (require.main === module) {
     billingStorageMode = 'in-memory';
   }
 
-  const server = createServer({ profileLibraryStore: store, usageLedgerStore, billingAccountStore });
+  let feedbackStore: FeedbackStore;
+  let feedbackStorageMode: string;
+
+  if (feedbackStoreType === 'sqlite' || feedbackSqlitePath) {
+    // Lazy import to avoid the experimental warning unless SQLite is selected.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSqliteFeedbackStore } = require('./sqliteFeedbackStore') as typeof import('./sqliteFeedbackStore');
+    const dbPath = feedbackSqlitePath ?? 'feedback-store.db';
+    feedbackStore = createSqliteFeedbackStore(dbPath);
+    feedbackStorageMode = `sqlite (${dbPath})`;
+  } else {
+    feedbackStore = createInMemoryFeedbackStore();
+    feedbackStorageMode = 'in-memory';
+  }
+
+  const server = createServer({ profileLibraryStore: store, usageLedgerStore, billingAccountStore, feedbackStore });
   server.listen(port, () => {
     console.log(
-      `Prompt Compiler API listening on http://localhost:${port} [profile storage: ${storageMode}] [usage storage: ${usageStorageMode}] [billing storage: ${billingStorageMode}]`
+      `Prompt Compiler API listening on http://localhost:${port} [profile storage: ${storageMode}] [usage storage: ${usageStorageMode}] [billing storage: ${billingStorageMode}] [feedback storage: ${feedbackStorageMode}]`
     );
   });
 }

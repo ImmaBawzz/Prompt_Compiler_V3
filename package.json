@@ -17,7 +17,9 @@
     "sample:cli": "npm --workspace packages/cli run sample",
     "dev:api": "npm --workspace apps/api run dev",
     "dev:extension": "npm --workspace apps/extension run watch",
-    "package:extension": "npm --workspace apps/extension run package"
+    "package:extension": "npm --workspace apps/extension run package",
+    "agent2:run": "node --experimental-strip-types scripts/agent2-runner.ts",
+    "agent2:watchdog": "node --experimental-strip-types scripts/agent2-watchdog.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.18",

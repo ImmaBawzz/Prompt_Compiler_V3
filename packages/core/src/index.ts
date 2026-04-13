@@ -19,3 +19,6 @@ export * from './publishing';
 export * from './marketplace';
 export * from './reviews';
 export * from './usage';
+export * from './agent2-types';
+export * from './signal-collectors';
+export * from './adaptation-engine';

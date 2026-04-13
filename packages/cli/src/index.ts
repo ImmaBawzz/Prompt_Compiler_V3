@@ -29,6 +29,7 @@ interface CliArgs {
   showHelp: boolean;
   prompt?: string;
   autoRefine: boolean;
+  stream: boolean;
 }
 
 interface ProviderExecutionConfig {
@@ -155,7 +156,8 @@ function toCliArgs(parsed: Record<string, ArgValue>): CliArgs {
     outputPath: parsed.output ? String(parsed.output) : undefined,
     showHelp: Boolean(parsed.help),
     prompt: parsed.prompt ? String(parsed.prompt) : undefined,
-    autoRefine: Boolean(parsed['auto-refine'])
+    autoRefine: Boolean(parsed['auto-refine']),
+    stream: Boolean(parsed['stream'])
   };
 }
 
@@ -180,6 +182,7 @@ function printHelp(): void {
       '  --auto-refine           When used with --prompt, auto-apply refinement hints.',
       '  --export                Write export bundle files into workspace.',
       '  --execute               Send one compiled output to provider via API /execute.',
+      '  --stream                Stream execution via SSE (/execute/stream). Prints progress to stderr.',
       '  --provider-config       Path to provider config JSON (default: provider-config.json).',  '  --policy-timeout        Execution timeout per attempt in milliseconds (overrides provider config).',
   '  --policy-retries        Number of retries after first failed attempt (overrides provider config).',
   '  --policy-retry-delay    Delay between retry attempts in milliseconds (overrides provider config).',      '  --publish               Submit compiled bundle to API /publish/jobs.',
@@ -310,6 +313,109 @@ async function executeFromCompileResult(
   }
 
   return payload.result;
+}
+
+// P29-2: Streaming execution via SSE. Prints progress events to stderr and returns the final result.
+async function executeStreamFromCompileResult(
+  args: CliArgs,
+  brief: PromptBrief,
+  result: {
+    briefId: string;
+    profileId: string;
+    outputs: Array<{ target: string; content: string }>;
+    generatedAt: string;
+  }
+): Promise<unknown> {
+  const config = readJson<ProviderExecutionConfig>(args.providerConfigPath);
+  if (!config.provider || !config.provider.id || !config.provider.type) {
+    throw new Error('Provider config must include provider.id and provider.type.');
+  }
+
+  const selectedOutput = config.target
+    ? result.outputs.find((output) => output.target === config.target)
+    : result.outputs[0];
+
+  if (!selectedOutput) {
+    throw new Error(`No compiled output found for target '${config.target}'.`);
+  }
+
+  const bundleId = createBundleId(brief, result);
+  const apiBase = (config.apiBaseUrl ?? 'http://localhost:8787').replace(/\/$/, '');
+
+  const mergedPolicy: { timeoutMs?: number; maxRetries?: number; retryDelayMs?: number } = {
+    ...config.policy
+  };
+  if (args.policyTimeoutMs !== undefined) mergedPolicy.timeoutMs = args.policyTimeoutMs;
+  if (args.policyMaxRetries !== undefined) mergedPolicy.maxRetries = args.policyMaxRetries;
+  if (args.policyRetryDelayMs !== undefined) mergedPolicy.retryDelayMs = args.policyRetryDelayMs;
+  const hasPolicy = Object.keys(mergedPolicy).length > 0;
+
+  const executePayload = {
+    content: selectedOutput.content,
+    target: selectedOutput.target,
+    bundleId,
+    profileId: result.profileId,
+    provider: config.provider,
+    maxTokens: config.maxTokens,
+    temperature: config.temperature,
+    plan: config.plan,
+    mode: config.mode,
+    entitlements: config.entitlements,
+    ...(hasPolicy ? { policy: mergedPolicy } : {})
+  };
+
+  const response = await fetch(`${apiBase}/execute/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(executePayload)
+  });
+
+  if (!response.ok || !response.body) {
+    const payload = (await response.json()) as { error?: { message?: string; featureKey?: string } };
+    const featureKey = (payload.error as { featureKey?: string } | undefined)?.featureKey;
+    const friendlyMessage = formatEntitlementError(
+      featureKey,
+      payload.error?.message ?? `Stream execute failed with status ${response.status}`
+    );
+    throw new Error(friendlyMessage);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalResult: unknown = undefined;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split('\n\n');
+    buffer = blocks.pop() ?? '';
+    for (const block of blocks) {
+      let eventName = '';
+      let dataStr = '';
+      for (const line of block.split('\n')) {
+        if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+        else if (line.startsWith('data: ')) dataStr = line.slice(6);
+      }
+      if (!dataStr) continue;
+      let data: unknown;
+      try { data = JSON.parse(dataStr); } catch { continue; }
+      if (eventName === 'error') {
+        const errData = data as { message?: string } | null;
+        throw new Error(errData?.message ?? 'Stream execution error');
+      }
+      if (eventName === 'completed') {
+        finalResult = (data as { result?: unknown } | null)?.result;
+        const telemetry = (data as { telemetry?: unknown } | null)?.telemetry;
+        process.stderr.write(`[stream] completed ${JSON.stringify(telemetry ?? {})}\n`);
+      } else {
+        process.stderr.write(`[stream] ${eventName} ${JSON.stringify(data)}\n`);
+      }
+    }
+  }
+
+  return finalResult;
 }
 
 async function publishFromCompileResult(
@@ -611,8 +717,10 @@ async function main(): Promise<number> {
     }
 
     let executionResult: unknown;
-    if (args.execute) {
-      executionResult = await executeFromCompileResult(args, brief, result);
+    if (args.execute || args.stream) {
+      executionResult = args.stream
+        ? await executeStreamFromCompileResult(args, brief, result)
+        : await executeFromCompileResult(args, brief, result);
     }
 
     let publishResult: unknown;
@@ -629,7 +737,7 @@ async function main(): Promise<number> {
     writeResponse(
       {
         ok: true,
-        result: args.execute || args.publish || wantsReviewActions
+        result: args.execute || args.stream || args.publish || wantsReviewActions
           ? {
               compilation: result,
               ...(args.execute ? { execution: executionResult } : {}),
