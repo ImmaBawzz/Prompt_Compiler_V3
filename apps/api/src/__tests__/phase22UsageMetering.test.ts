@@ -135,6 +135,55 @@ test('phase22 metering: live execute records a usage event in the execute domain
   });
 });
 
+test('phase26 quotas: live execute is blocked when execute quota is exhausted', async () => {
+  await withMeteringServer(async ({ port, ledger }) => {
+    const accountId = 'acct-exec-quota';
+    ledger.append({
+      eventId: 'exec-quota-1',
+      accountId,
+      domain: 'execute',
+      action: 'execute-compiled-output',
+      unit: 'request',
+      unitsConsumed: 1,
+      occurredAt: new Date().toISOString()
+    });
+    ledger.append({
+      eventId: 'exec-quota-2',
+      accountId,
+      domain: 'execute',
+      action: 'execute-compiled-output',
+      unit: 'request',
+      unitsConsumed: 1,
+      occurredAt: new Date().toISOString()
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+      body: JSON.stringify({
+        content: 'quota check execute',
+        target: 'suno',
+        bundleId: 'bundle-exec-quota',
+        profileId: 'profile-metering',
+        provider: {
+          id: 'openai-test',
+          type: 'openai-compatible',
+          baseUrl: 'http://127.0.0.1:1',
+          model: 'gpt-test'
+        },
+        plan: 'pro',
+        mode: 'hosted',
+        entitlements: ['credits.compute']
+      })
+    });
+
+    assert.equal(res.status, 403);
+    const body = (await res.json()) as { ok: boolean; error?: { message?: string } };
+    assert.equal(body.ok, false);
+    assert.match(body.error?.message ?? '', /Quota exceeded for 'execute'/);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Tests — publish flow
 // ---------------------------------------------------------------------------
@@ -185,6 +234,59 @@ test('phase22 metering: live publish records a usage event in the publish domain
   });
 });
 
+test('phase26 quotas: live publish is blocked when publish quota is exhausted', async () => {
+  await withWebhookReceiver(async (webhookUrl) => {
+    await withMeteringServer(async ({ port, ledger }) => {
+      const accountId = 'acct-pub-quota';
+      ledger.append({
+        eventId: 'pub-quota-1',
+        accountId,
+        domain: 'publish',
+        action: 'publish-bundle',
+        unit: 'request',
+        unitsConsumed: 1,
+        occurredAt: new Date().toISOString()
+      });
+      ledger.append({
+        eventId: 'pub-quota-2',
+        accountId,
+        domain: 'publish',
+        action: 'publish-bundle',
+        unit: 'request',
+        unitsConsumed: 1,
+        occurredAt: new Date().toISOString()
+      });
+      ledger.append({
+        eventId: 'pub-quota-3',
+        accountId,
+        domain: 'publish',
+        action: 'publish-bundle',
+        unit: 'request',
+        unitsConsumed: 1,
+        occurredAt: new Date().toISOString()
+      });
+
+      const res = await fetch(`http://127.0.0.1:${port}/publish/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-account-id': accountId },
+        body: JSON.stringify({
+          bundleId: 'bundle-pub-quota',
+          profileId: 'profile-metering',
+          target: { id: 'webhook-test', kind: 'webhook', url: webhookUrl },
+          plan: 'studio',
+          mode: 'hosted',
+          entitlements: ['studio.team']
+        })
+      });
+
+      assert.equal(res.status, 403);
+      const body = (await res.json()) as { ok: boolean; error?: { message?: string } };
+      assert.equal(body.ok, false);
+      assert.match(body.error?.message ?? '', /Quota exceeded for 'publish'/);
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Tests — marketplace install flow
 // ---------------------------------------------------------------------------
@@ -229,6 +331,64 @@ test('phase22 metering: marketplace install records a usage event', async () => 
     assert.equal(events[0].listingId, listing.listingId);
     assert.equal(events[0].unit, 'request');
     assert.equal(events[0].unitsConsumed, 1);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve()))
+    );
+  }
+});
+
+test('phase26 quotas: marketplace install is blocked when install quota is exhausted', async () => {
+  const marketplaceStore = createInMemoryMarketplaceStore();
+  const listing = marketplaceStore.save(
+    createMarketplaceListing({
+      listingId: 'listing-metering-quota',
+      publishedBy: 'publisher-1',
+      displayName: 'Metering Quota Profile',
+      description: 'Used for quota tests.',
+      listingType: 'brand-profile',
+      payload: SAMPLE_PROFILE
+    })
+  );
+
+  const ledger = createInMemoryUsageLedgerStore();
+  ledger.append({
+    eventId: 'install-quota-1',
+    accountId: 'acct-install-quota',
+    domain: 'marketplace-install',
+    action: 'install-listing',
+    listingId: listing.listingId,
+    unit: 'request',
+    unitsConsumed: 1,
+    occurredAt: new Date().toISOString()
+  });
+
+  const server = createServer({
+    authConfig: { bypassAuth: true },
+    usageLedgerStore: ledger,
+    marketplaceStore
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const port = (server.address() as AddressInfo).port;
+
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/marketplace/install`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-account-id': 'acct-install-quota' },
+      body: JSON.stringify({
+        listingId: listing.listingId,
+        accountId: 'acct-install-quota',
+        plan: 'free',
+        mode: 'hosted',
+        entitlements: ['free.local']
+      })
+    });
+
+    assert.equal(res.status, 403);
+    const body = (await res.json()) as { ok: boolean; error?: { message?: string } };
+    assert.equal(body.ok, false);
+    assert.match(body.error?.message ?? '', /Quota exceeded for 'marketplace-install'/);
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve()))
@@ -435,15 +595,22 @@ test('phase22 metering: GET /session/bootstrap includes usageSummary when accoun
         account: unknown;
         entitlements: unknown;
         flags: unknown;
-        usageSummary?: { totalEvents: number };
+        usage?: {
+          summary?: { totalEvents: number };
+          quotas?: Record<string, { limit: number; used: number; remaining: number; exhausted: boolean }>;
+          creditsRemaining: number | null;
+        };
       };
     };
 
     assert.equal(body.ok, true);
     assert.ok(body.result.account, 'bootstrap must include account');
     assert.ok(body.result.flags, 'bootstrap must include flags');
-    assert.ok(body.result.usageSummary, 'bootstrap must include usageSummary when accountId is provided');
-    assert.equal(body.result.usageSummary!.totalEvents, 1);
+    assert.ok(body.result.usage, 'bootstrap must include usage overview when accountId is provided');
+    assert.equal(body.result.usage!.summary!.totalEvents, 1);
+    assert.equal(body.result.usage!.quotas!.execute.used, 1);
+    assert.equal(body.result.usage!.quotas!.execute.limit, 0);
+    assert.equal(body.result.usage!.creditsRemaining, null);
   });
 });
 
@@ -453,8 +620,8 @@ test('phase22 metering: GET /session/bootstrap omits usageSummary when no accoun
     assert.equal(res.status, 200);
     const body = (await res.json()) as {
       ok: boolean;
-      result: { usageSummary?: unknown };
+      result: { usage?: unknown };
     };
-    assert.equal(body.result.usageSummary, undefined, 'usageSummary must be absent when no accountId');
+    assert.equal(body.result.usage, undefined, 'usage overview must be absent when no accountId');
   });
 });

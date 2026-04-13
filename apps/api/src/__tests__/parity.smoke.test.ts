@@ -89,6 +89,7 @@ test('GET /session/bootstrap exposes the shared hosted entitlement contract', as
       account: { accountId: string; workspaceId?: string; plan: string; mode: string };
       entitlements: { entitlements: string[]; features: Array<{ key: string; enabled: boolean }>; creditBalance: number | null };
       flags: { hostedSyncEnabled: boolean; workflowAutomationEnabled: boolean; billingEnabled: boolean };
+      usage?: { creditsRemaining: number | null };
     };
   };
 
@@ -103,6 +104,7 @@ test('GET /session/bootstrap exposes the shared hosted entitlement contract', as
     payload.result.entitlements.features.some((item) => item.key === 'automation.jobs' && item.enabled),
     true
   );
+  assert.equal(payload.result.usage?.creditsRemaining, 24);
 });
 
 test('POST /libraries/profile-sync-manifest returns a deterministic manifest contract', async (context) => {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import http, { IncomingMessage, ServerResponse } from 'node:http';
 import { resolveAuthContext, requireAuth, requireOwnerAccess, requireWorkspaceRole, AuthConfig } from './auth';
 import {
@@ -63,11 +64,21 @@ import {
   CreateMarketplaceListingInput,
   MarketplaceListingType,
   // Phase 22
+  buildUsageQuotaSnapshot,
   createUsageMeteringEvent,
   createInMemoryUsageLedgerStore,
+  resolveUsageQuotaPlan,
+  signWebhookPayload,
+  USAGE_DOMAIN_QUOTA_LIMITS,
   UsageLedgerStore,
+  UsageMeteringDomain,
   UsageMeteringEventFilter
 } from '@prompt-compiler/core';
+import {
+  BillingAccountStore,
+  BillingSubscriptionStatus,
+  createInMemoryBillingAccountStore
+} from './billingAccountStore';
 import { createInMemoryHostedProfileLibraryStore, HostedProfileLibraryStore } from './profileLibraryStore';
 import { createFileHostedProfileLibraryStore } from './fileProfileLibraryStore';
 import { createInMemoryWorkspaceMemberStore, WorkspaceMemberStore } from './workspaceMemberStore';
@@ -79,6 +90,24 @@ interface ApiCompileRequest {
   profile?: BrandProfile;
   options?: { includeGenericOutput?: boolean };
   // Optional session context — used for entitlement enforcement seam.
+  plan?: 'free' | 'pro' | 'studio';
+  mode?: 'local' | 'hosted';
+  entitlements?: EntitlementKey[];
+}
+
+interface ApiExecuteRequestBody {
+  content?: string;
+  target?: string;
+  bundleId?: string;
+  profileId?: string;
+  provider?: ProviderTarget;
+  maxTokens?: number;
+  temperature?: number;
+  policy?: {
+    timeoutMs?: number;
+    maxRetries?: number;
+    retryDelayMs?: number;
+  };
   plan?: 'free' | 'pro' | 'studio';
   mode?: 'local' | 'hosted';
   entitlements?: EntitlementKey[];
@@ -143,6 +172,10 @@ interface ServerOptions {
   bundleReviewStore?: BundleReviewStore;
   /** Usage ledger store for Phase 22 commercial metering. */
   usageLedgerStore?: UsageLedgerStore;
+  /** Billing account store for Phase 27 payment integration scaffolding. */
+  billingAccountStore?: BillingAccountStore;
+  /** Shared secret used to verify Stripe webhook signatures in local scaffolding. */
+  stripeWebhookSecret?: string;
 }
 
 function requestUrl(req: IncomingMessage): URL | null {
@@ -175,6 +208,46 @@ function errorResponse(res: ServerResponse, statusCode: number, error: ApiError)
 
 function authErrorStatus(error: { code: 'UNAUTHORIZED' | 'FORBIDDEN' }): number {
   return error.code === 'UNAUTHORIZED' ? 401 : 403;
+}
+
+function stripeWebhookSecret(options: ServerOptions): string {
+  return options.stripeWebhookSecret ?? process.env['STRIPE_WEBHOOK_SECRET'] ?? 'stripe-dev-secret';
+}
+
+function buildStripeCheckoutUrl(sessionId: string): string {
+  return `https://checkout.stripe.com/pay/${sessionId}`;
+}
+
+function buildStripePortalUrl(customerId: string): string {
+  return `https://billing.stripe.com/p/session/${customerId}`;
+}
+
+function verifyStripeSignature(body: string, providedSignature: string | null, secret: string): boolean {
+  if (!providedSignature) {
+    return false;
+  }
+  const expected = signWebhookPayload(body, secret);
+  return providedSignature === expected;
+}
+
+function mapStripeSubscriptionStatus(status: string | undefined): BillingSubscriptionStatus {
+  switch (status) {
+    case 'active':
+    case 'trialing':
+      return 'active';
+    case 'past_due':
+    case 'unpaid':
+      return 'past_due';
+    case 'canceled':
+      return 'canceled';
+    default:
+      return 'checkout_pending';
+  }
+}
+
+function writeSseEvent(res: ServerResponse, event: string, data: unknown): void {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
 function parseBootstrapQuery(url: URL):
@@ -270,6 +343,46 @@ function requireFeatureAccess(input: {
   return null;
 }
 
+function requireWithinDomainQuota(input: {
+  usageLedgerStore: UsageLedgerStore;
+  accountId: string;
+  domain: UsageMeteringDomain;
+  plan?: 'free' | 'pro' | 'studio';
+  mode?: 'local' | 'hosted';
+  entitlements?: EntitlementKey[];
+  unitsToConsume?: number;
+}): ApiError | null {
+  const mode = input.mode ?? 'hosted';
+  if (mode !== 'hosted') {
+    return null;
+  }
+
+  const quotaPlan = resolveUsageQuotaPlan(input.plan, input.entitlements);
+  const limit = USAGE_DOMAIN_QUOTA_LIMITS[input.domain][quotaPlan];
+  const units = Number(input.unitsToConsume ?? 1);
+  if (!Number.isFinite(units) || units <= 0) {
+    return {
+      code: 'BAD_REQUEST',
+      message: 'Invalid quota units requested.'
+    };
+  }
+
+  if (limit < 0) {
+    return null;
+  }
+
+  const summary = input.usageLedgerStore.summarizeAccount(input.accountId, { domain: input.domain, unit: 'request' });
+  const used = summary.totalsByDomain[input.domain] ?? 0;
+  if (used + units > limit) {
+    return {
+      code: 'FORBIDDEN',
+      message: `Quota exceeded for '${input.domain}' on plan '${quotaPlan}'. Used ${used}/${limit} request units.`
+    };
+  }
+
+  return null;
+}
+
 export function createServer(options: ServerOptions = {}): http.Server {
   const profileLibraryStore = options.profileLibraryStore ?? createInMemoryHostedProfileLibraryStore();
   const workspaceMemberStore = options.workspaceMemberStore ?? createInMemoryWorkspaceMemberStore();
@@ -278,6 +391,7 @@ export function createServer(options: ServerOptions = {}): http.Server {
   const marketplaceStore = options.marketplaceStore ?? createInMemoryMarketplaceStore();
   const bundleReviewStore = options.bundleReviewStore ?? createInMemoryBundleReviewStore();
   const usageLedgerStore = options.usageLedgerStore ?? createInMemoryUsageLedgerStore();
+  const billingAccountStore = options.billingAccountStore ?? createInMemoryBillingAccountStore();
 
   return http.createServer(async (req, res) => {
     const url = requestUrl(req);
@@ -303,17 +417,247 @@ export function createServer(options: ServerOptions = {}): http.Server {
         return;
       }
 
-      const bootstrap = buildHostedSessionBootstrap(query.value);
-
       // Phase 22 — attach usage summary when accountId is available so extension
       // and other surfaces can surface commercial state in a single call.
       const bootstrapAccountId = query.value?.accountId;
-      const usageSummary =
-        bootstrapAccountId
-          ? usageLedgerStore.summarizeAccount(bootstrapAccountId)
-          : undefined;
+      const billingAccount = bootstrapAccountId
+        ? billingAccountStore.get(bootstrapAccountId)
+        : undefined;
+      const bootstrapPlan = query.value?.plan ?? billingAccount?.plan;
+      const bootstrapCreditBalance = query.value?.creditBalance ?? billingAccount?.creditBalance ?? null;
+      const usageSummary = bootstrapAccountId
+        ? usageLedgerStore.summarizeAccount(bootstrapAccountId)
+        : undefined;
+      const usageQuotas = usageSummary
+        ? buildUsageQuotaSnapshot(usageSummary, bootstrapPlan, query.value?.grantedEntitlements)
+        : undefined;
 
-      json(res, 200, { ok: true, result: { ...bootstrap, usageSummary } });
+      const bootstrap = buildHostedSessionBootstrap({
+        ...query.value,
+        plan: bootstrapPlan,
+        creditBalance: bootstrapCreditBalance,
+        usageSummary,
+        usageQuotas
+      });
+
+      json(res, 200, { ok: true, result: bootstrap });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/billing/checkout') {
+      try {
+        const raw = await readBody(req);
+        const payload = JSON.parse(raw) as {
+          accountId?: string;
+          plan?: 'free' | 'pro' | 'studio';
+          successUrl?: string;
+          cancelUrl?: string;
+        };
+
+        if (!payload?.accountId || typeof payload.accountId !== 'string') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include "accountId".' });
+          return;
+        }
+        if (payload.plan !== 'pro' && payload.plan !== 'studio') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'plan must be pro or studio.' });
+          return;
+        }
+
+        const ownerError = requireOwnerAccess(authCtx, payload.accountId);
+        if (ownerError) {
+          errorResponse(res, authErrorStatus(ownerError), ownerError);
+          return;
+        }
+
+        const sessionId = `cs_test_${randomUUID().replace(/-/g, '')}`;
+        const checkoutUrl = buildStripeCheckoutUrl(sessionId);
+        const account = billingAccountStore.upsert({
+          accountId: payload.accountId,
+          pendingPlan: payload.plan,
+          stripeCheckoutSessionId: sessionId,
+          subscriptionStatus: 'checkout_pending',
+          portalEnabled: false
+        });
+
+        json(res, 201, {
+          ok: true,
+          result: {
+            provider: 'stripe',
+            accountId: payload.accountId,
+            targetPlan: payload.plan,
+            sessionId,
+            checkoutUrl,
+            successUrl: payload.successUrl,
+            cancelUrl: payload.cancelUrl,
+            status: account.subscriptionStatus
+          }
+        });
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Malformed JSON body.' });
+          return;
+        }
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errorResponse(res, 500, { code: 'SERVER_ERROR', message });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/billing/portal') {
+      try {
+        const raw = await readBody(req);
+        const payload = JSON.parse(raw) as {
+          accountId?: string;
+          returnUrl?: string;
+        };
+
+        if (!payload?.accountId || typeof payload.accountId !== 'string') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include "accountId".' });
+          return;
+        }
+
+        const ownerError = requireOwnerAccess(authCtx, payload.accountId);
+        if (ownerError) {
+          errorResponse(res, authErrorStatus(ownerError), ownerError);
+          return;
+        }
+
+        const account = billingAccountStore.get(payload.accountId);
+        if (!account?.stripeCustomerId) {
+          errorResponse(res, 404, { code: 'NOT_FOUND', message: 'No billing customer exists for this account yet.' });
+          return;
+        }
+
+        json(res, 200, {
+          ok: true,
+          result: {
+            provider: 'stripe',
+            accountId: payload.accountId,
+            portalUrl: buildStripePortalUrl(account.stripeCustomerId),
+            returnUrl: payload.returnUrl
+          }
+        });
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Malformed JSON body.' });
+          return;
+        }
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errorResponse(res, 500, { code: 'SERVER_ERROR', message });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/billing/webhooks/stripe') {
+      try {
+        const raw = await readBody(req);
+        const signatureHeader = req.headers['stripe-signature'];
+        const signature = typeof signatureHeader === 'string' ? signatureHeader : null;
+        if (!verifyStripeSignature(raw, signature, stripeWebhookSecret(options))) {
+          errorResponse(res, 401, { code: 'UNAUTHORIZED', message: 'Invalid Stripe webhook signature.' });
+          return;
+        }
+
+        const payload = JSON.parse(raw) as {
+          id?: string;
+          type?: string;
+          data?: {
+            object?: {
+              id?: string;
+              customer?: string;
+              subscription?: string;
+              status?: string;
+              metadata?: {
+                accountId?: string;
+                targetPlan?: 'free' | 'pro' | 'studio';
+              };
+              creditBalance?: number;
+            };
+          };
+        };
+
+        if (!payload?.type || !payload.data?.object) {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Stripe webhook must include type and data.object.' });
+          return;
+        }
+
+        const object = payload.data.object;
+        const targetAccountId = object.metadata?.accountId ?? (object.customer ? billingAccountStore.getByStripeCustomerId(object.customer)?.accountId : undefined);
+        if (!targetAccountId) {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Stripe webhook does not map to a known accountId.' });
+          return;
+        }
+
+        const existing = billingAccountStore.get(targetAccountId);
+        const targetPlan = object.metadata?.targetPlan ?? existing?.pendingPlan ?? existing?.plan ?? 'free';
+
+        switch (payload.type) {
+          case 'checkout.session.completed': {
+            billingAccountStore.upsert({
+              accountId: targetAccountId,
+              stripeCustomerId: object.customer,
+              stripeCheckoutSessionId: object.id,
+              pendingPlan: targetPlan,
+              subscriptionStatus: 'checkout_pending'
+            });
+            break;
+          }
+          case 'customer.subscription.created':
+          case 'customer.subscription.updated': {
+            const mappedStatus = mapStripeSubscriptionStatus(object.status);
+            billingAccountStore.upsert({
+              accountId: targetAccountId,
+              plan: mappedStatus === 'active' ? targetPlan : existing?.plan ?? 'free',
+              pendingPlan: mappedStatus === 'active' ? undefined : targetPlan,
+              stripeCustomerId: object.customer,
+              stripeSubscriptionId: object.id ?? object.subscription,
+              subscriptionStatus: mappedStatus,
+              portalEnabled: Boolean(object.customer),
+              creditBalance: typeof object.creditBalance === 'number' ? object.creditBalance : existing?.creditBalance
+            });
+            break;
+          }
+          case 'customer.subscription.deleted': {
+            billingAccountStore.upsert({
+              accountId: targetAccountId,
+              plan: 'free',
+              pendingPlan: undefined,
+              stripeCustomerId: object.customer,
+              stripeSubscriptionId: object.id ?? object.subscription,
+              subscriptionStatus: 'canceled',
+              portalEnabled: Boolean(object.customer)
+            });
+            break;
+          }
+          case 'invoice.payment_failed': {
+            billingAccountStore.upsert({
+              accountId: targetAccountId,
+              stripeCustomerId: object.customer,
+              subscriptionStatus: 'past_due'
+            });
+            break;
+          }
+          default:
+            break;
+        }
+
+        json(res, 200, {
+          ok: true,
+          result: {
+            received: true,
+            eventType: payload.type,
+            accountId: targetAccountId,
+            account: billingAccountStore.get(targetAccountId)
+          }
+        });
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Malformed JSON body.' });
+          return;
+        }
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errorResponse(res, 500, { code: 'SERVER_ERROR', message });
+      }
       return;
     }
 
@@ -838,26 +1182,155 @@ export function createServer(options: ServerOptions = {}): http.Server {
     // POST /execute
     // -------------------------------------------------------------------------
 
+    if (req.method === 'POST' && url.pathname === '/execute/stream') {
+      let streamStarted = false;
+      try {
+        const raw = await readBody(req);
+        const payload = JSON.parse(raw) as ApiExecuteRequestBody;
+
+        if (!payload?.content || typeof payload.content !== 'string' || !payload.content.trim()) {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include a non-empty "content" string.' });
+          return;
+        }
+        if (!payload.bundleId || typeof payload.bundleId !== 'string') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include "bundleId".' });
+          return;
+        }
+        if (!payload.profileId || typeof payload.profileId !== 'string') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include "profileId".' });
+          return;
+        }
+        if (!payload.provider || typeof payload.provider !== 'object') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include a "provider" object.' });
+          return;
+        }
+
+        const execValidation = validateExecutionRequest({
+          content: payload.content,
+          target: payload.target ?? 'generic',
+          bundleId: payload.bundleId,
+          profileId: payload.profileId,
+          provider: payload.provider,
+          maxTokens: payload.maxTokens,
+          temperature: payload.temperature,
+          policy: payload.policy
+        });
+        if (!execValidation.valid) {
+          errorResponse(res, 400, {
+            code: 'VALIDATION_ERROR',
+            message: `Invalid execution request: ${execValidation.errors.join('; ')}`
+          });
+          return;
+        }
+
+        const isDryRun = payload.provider.type === 'dry-run';
+        if (!isDryRun) {
+          const execEntitlementError = requireFeatureAccess({
+            plan: payload.plan,
+            mode: payload.mode,
+            entitlements: payload.entitlements,
+            featureKey: 'compute.batch'
+          });
+          if (execEntitlementError) {
+            errorResponse(res, 403, execEntitlementError);
+            return;
+          }
+
+          if (authCtx.accountId) {
+            const execQuotaError = requireWithinDomainQuota({
+              usageLedgerStore,
+              accountId: authCtx.accountId,
+              domain: 'execute',
+              plan: payload.plan,
+              mode: payload.mode,
+              entitlements: payload.entitlements,
+              unitsToConsume: 1
+            });
+            if (execQuotaError) {
+              errorResponse(res, execQuotaError.code === 'BAD_REQUEST' ? 400 : 403, execQuotaError);
+              return;
+            }
+          }
+        }
+
+        const request: ExecutionRequest = {
+          content: payload.content.trim(),
+          target: (payload.target ?? 'generic') as ExecutionRequest['target'],
+          bundleId: payload.bundleId,
+          profileId: payload.profileId,
+          provider: payload.provider,
+          maxTokens: payload.maxTokens,
+          temperature: payload.temperature,
+          policy: payload.policy
+        };
+
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive'
+        });
+        streamStarted = true;
+
+        writeSseEvent(res, 'started', {
+          bundleId: request.bundleId,
+          profileId: request.profileId,
+          provider: request.provider.type,
+          isDryRun,
+          startedAt: new Date().toISOString()
+        });
+
+        writeSseEvent(res, 'progress', {
+          stage: 'dispatching-provider-request'
+        });
+
+        const result = await executeCompiledOutput(request);
+
+        if (!isDryRun && authCtx.accountId) {
+          usageLedgerStore.append(
+            createUsageMeteringEvent({
+              accountId: authCtx.accountId,
+              workspaceId: authCtx.workspaceId ?? undefined,
+              domain: 'execute',
+              action: 'execute-compiled-output',
+              bundleId: payload.bundleId,
+              profileId: payload.profileId,
+              unit: 'request',
+              unitsConsumed: 1,
+              plan: payload.plan,
+              mode: payload.mode,
+              entitlements: payload.entitlements
+            })
+          );
+
+          writeSseEvent(res, 'progress', {
+            stage: 'metered-usage-recorded'
+          });
+        }
+
+        writeSseEvent(res, 'completed', { result });
+        res.end();
+      } catch (error) {
+        if (!streamStarted) {
+          if (error instanceof SyntaxError) {
+            errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Malformed JSON body.' });
+            return;
+          }
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          errorResponse(res, 500, { code: 'SERVER_ERROR', message });
+          return;
+        }
+
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        writeSseEvent(res, 'error', { code: 'SERVER_ERROR', message });
+        res.end();
+      }
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/execute') {
       try {
         const raw = await readBody(req);
-        const payload = JSON.parse(raw) as {
-          content?: string;
-          target?: string;
-          bundleId?: string;
-          profileId?: string;
-          provider?: ProviderTarget;
-          maxTokens?: number;
-          temperature?: number;
-          policy?: {
-            timeoutMs?: number;
-            maxRetries?: number;
-            retryDelayMs?: number;
-          };
-          plan?: 'free' | 'pro' | 'studio';
-          mode?: 'local' | 'hosted';
-          entitlements?: EntitlementKey[];
-        };
+        const payload = JSON.parse(raw) as ApiExecuteRequestBody;
 
         if (!payload?.content || typeof payload.content !== 'string' || !payload.content.trim()) {
           errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Request must include a non-empty "content" string.' });
@@ -908,6 +1381,22 @@ export function createServer(options: ServerOptions = {}): http.Server {
           if (execEntitlementError) {
             errorResponse(res, 403, execEntitlementError);
             return;
+          }
+
+          if (authCtx.accountId) {
+            const execQuotaError = requireWithinDomainQuota({
+              usageLedgerStore,
+              accountId: authCtx.accountId,
+              domain: 'execute',
+              plan: payload.plan,
+              mode: payload.mode,
+              entitlements: payload.entitlements,
+              unitsToConsume: 1
+            });
+            if (execQuotaError) {
+              errorResponse(res, execQuotaError.code === 'BAD_REQUEST' ? 400 : 403, execQuotaError);
+              return;
+            }
           }
         }
 
@@ -1344,6 +1833,22 @@ export function createServer(options: ServerOptions = {}): http.Server {
             errorResponse(res, 403, publishAccessError);
             return;
           }
+
+          if (authCtx.accountId) {
+            const publishQuotaError = requireWithinDomainQuota({
+              usageLedgerStore,
+              accountId: authCtx.accountId,
+              domain: 'publish',
+              plan: payload.plan,
+              mode: payload.mode,
+              entitlements: payload.entitlements,
+              unitsToConsume: 1
+            });
+            if (publishQuotaError) {
+              errorResponse(res, publishQuotaError.code === 'BAD_REQUEST' ? 400 : 403, publishQuotaError);
+              return;
+            }
+          }
         }
 
         const createJobInput: CreatePublishJobInput = {
@@ -1500,6 +2005,9 @@ export function createServer(options: ServerOptions = {}): http.Server {
           listingId?: string;
           accountId?: string;
           workspaceId?: string;
+          plan?: 'free' | 'pro' | 'studio';
+          mode?: 'local' | 'hosted';
+          entitlements?: EntitlementKey[];
         };
 
         if (!payload?.listingId || typeof payload.listingId !== 'string') {
@@ -1518,6 +2026,20 @@ export function createServer(options: ServerOptions = {}): http.Server {
         }
         if (listing.status !== 'published') {
           errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Listing is not published and cannot be installed.' });
+          return;
+        }
+
+        const installQuotaError = requireWithinDomainQuota({
+          usageLedgerStore,
+          accountId: payload.accountId,
+          domain: 'marketplace-install',
+          plan: payload.plan,
+          mode: payload.mode,
+          entitlements: payload.entitlements,
+          unitsToConsume: 1
+        });
+        if (installQuotaError) {
+          errorResponse(res, installQuotaError.code === 'BAD_REQUEST' ? 400 : 403, installQuotaError);
           return;
         }
 
@@ -1544,7 +2066,10 @@ export function createServer(options: ServerOptions = {}): http.Server {
             action: 'install-listing',
             listingId: payload.listingId,
             unit: 'request',
-            unitsConsumed: 1
+            unitsConsumed: 1,
+            plan: payload.plan,
+            mode: payload.mode,
+            entitlements: payload.entitlements
           })
         );
 
@@ -1771,8 +2296,12 @@ if (require.main === module) {
   const storeType = process.env['PROFILE_STORE_TYPE'] ?? 'auto';
   const storeDir = process.env['PROFILE_STORE_DIR'];
   const sqlitePath = process.env['PROFILE_STORE_SQLITE'];
+  const usageStoreType = process.env['USAGE_LEDGER_STORE_TYPE'] ?? 'auto';
+  const usageSqlitePath = process.env['USAGE_LEDGER_SQLITE'];
+  const billingStoreType = process.env['BILLING_ACCOUNT_STORE_TYPE'] ?? 'auto';
+  const billingSqlitePath = process.env['BILLING_ACCOUNT_STORE_SQLITE'];
 
-  let store: ReturnType<typeof createInMemoryHostedProfileLibraryStore>;
+  let store: HostedProfileLibraryStore;
   let storageMode: string;
 
   if (storeType === 'sqlite' || sqlitePath) {
@@ -1790,9 +2319,41 @@ if (require.main === module) {
     storageMode = 'in-memory';
   }
 
-  const server = createServer({ profileLibraryStore: store });
+  let usageLedgerStore: UsageLedgerStore;
+  let usageStorageMode: string;
+
+  if (usageStoreType === 'sqlite' || usageSqlitePath) {
+    // Lazy import to avoid the experimental warning unless SQLite is selected.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSqliteUsageLedgerStore } = require('./sqliteUsageLedgerStore') as typeof import('./sqliteUsageLedgerStore');
+    const dbPath = usageSqlitePath ?? 'usage-ledger.db';
+    usageLedgerStore = createSqliteUsageLedgerStore(dbPath);
+    usageStorageMode = `sqlite (${dbPath})`;
+  } else {
+    usageLedgerStore = createInMemoryUsageLedgerStore();
+    usageStorageMode = 'in-memory';
+  }
+
+  let billingAccountStore: BillingAccountStore;
+  let billingStorageMode: string;
+
+  if (billingStoreType === 'sqlite' || billingSqlitePath) {
+    // Lazy import to avoid the experimental warning unless SQLite is selected.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSqliteBillingAccountStore } = require('./sqliteBillingAccountStore') as typeof import('./sqliteBillingAccountStore');
+    const dbPath = billingSqlitePath ?? 'billing-accounts.db';
+    billingAccountStore = createSqliteBillingAccountStore(dbPath);
+    billingStorageMode = `sqlite (${dbPath})`;
+  } else {
+    billingAccountStore = createInMemoryBillingAccountStore();
+    billingStorageMode = 'in-memory';
+  }
+
+  const server = createServer({ profileLibraryStore: store, usageLedgerStore, billingAccountStore });
   server.listen(port, () => {
-    console.log(`Prompt Compiler API listening on http://localhost:${port} [storage: ${storageMode}]`);
+    console.log(
+      `Prompt Compiler API listening on http://localhost:${port} [profile storage: ${storageMode}] [usage storage: ${usageStorageMode}] [billing storage: ${billingStorageMode}]`
+    );
   });
 }
 

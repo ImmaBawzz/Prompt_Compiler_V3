@@ -182,6 +182,15 @@ Returns service status.
 ### `GET /session/bootstrap`
 Returns the hosted account/session bootstrap contract used to expose plan, entitlement, and feature flags without changing compiler semantics.
 
+### `POST /billing/checkout`
+Creates a Stripe-style checkout session envelope for upgrading an account to `pro` or `studio`.
+
+### `POST /billing/portal`
+Returns a Stripe-style customer portal URL for an account that already has a known Stripe customer id.
+
+### `POST /billing/webhooks/stripe`
+Receives Stripe webhook events, verifies the `stripe-signature` header, and updates the billing-account seam for checkout/subscription lifecycle events.
+
 ### `POST /libraries/profile-sync-manifest`
 Builds a deterministic sync manifest for hosted profile libraries from posted brand profiles and template packs.
 
@@ -207,6 +216,24 @@ Sends a compiled prompt output to an AI provider endpoint. Five provider types a
 | FLUX | `flux` | https://api.flux.ai/v1/generate | Image generation |
 | Kling | `kling` | https://api.klingai.com/v1/videos/text2video | Video generation |
 | Dry-run | `dry-run` | (local, no call) | Validation + token estimation only |
+
+### `POST /execute/stream`
+Streams execution lifecycle events over Server-Sent Events (SSE) using the same request body shape and entitlement/quota checks as `POST /execute`.
+
+Response headers:
+
+- `Content-Type: text/event-stream; charset=utf-8`
+- `Cache-Control: no-cache`
+- `Connection: keep-alive`
+
+Event sequence:
+
+- `started` with request metadata (`bundleId`, `profileId`, provider type, and `isDryRun`)
+- `progress` while dispatching the provider request
+- `progress` after usage metering is recorded for successful live executions
+- `completed` with the standard execution result payload
+
+If a runtime failure happens after the stream starts, the route emits an `error` event and closes the stream.
 
 **Entitlement gate:** Live execution (non-dry-run) requires `credits.compute` entitlement.
 Dry-run mode is always free.
@@ -289,6 +316,7 @@ Error codes:
 - **Custom headers:** Use `provider.headers` to inject custom HTTP headers into the provider request (e.g., `X-Test-Header: value`).
 - **Execution policy:** Optional `policy` controls network behavior per request. `timeoutMs` sets per-attempt timeout, `maxRetries` sets retry count after the first failure, and `retryDelayMs` sets delay between retries.
 - **Retry classification:** retries are automatically attempted for HTTP `408`, `429`, and `5xx` responses. Other `4xx` responses are treated as terminal provider errors without retry.
+- **Hard quotas:** Hosted metered routes enforce domain quotas before work starts. Quota checks run on `POST /execute` (live requests), `POST /publish/jobs` (non-dry-run), and `POST /marketplace/install`.
 - **Metadata:** All responses include `requestId`, `executedAt`, `latencyMs`, and `estimatedTokens` for observability and cost tracking.
 - **Token estimation:** `estimatedTokens` is always present, even for dry-run. Uses a ~4 characters per token heuristic for local estimation.
 
@@ -359,12 +387,84 @@ It returns:
       "hostedSyncEnabled": false,
       "workflowAutomationEnabled": false,
       "billingEnabled": false
+    },
+    "usage": {
+      "summary": {
+        "accountId": "acct-1",
+        "totalEvents": 3,
+        "totalsByDomain": {
+          "execute": 2,
+          "publish": 0,
+          "marketplace-install": 1
+        },
+        "totalsByUnit": {
+          "request": 3,
+          "token": 0
+        },
+        "mostRecentEventAt": "2026-04-13T00:00:00.000Z"
+      },
+      "quotas": {
+        "execute": { "limit": 2, "used": 2, "remaining": 0, "exhausted": true },
+        "publish": { "limit": 0, "used": 0, "remaining": 0, "exhausted": true },
+        "marketplace-install": { "limit": 3, "used": 1, "remaining": 2, "exhausted": false }
+      },
+      "creditsRemaining": 24
     }
   }
 }
 ```
 
 The route is intentionally a seam for future auth, sync, billing, and automation wrappers. It does not gate or alter the local compile path.
+
+## Billing routes
+
+`POST /billing/checkout` accepts:
+
+```json
+{
+  "accountId": "acct-pro",
+  "plan": "pro",
+  "successUrl": "http://localhost/success",
+  "cancelUrl": "http://localhost/cancel"
+}
+```
+
+It returns a Stripe-style session envelope with `sessionId`, `checkoutUrl`, and `targetPlan`.
+
+`POST /billing/portal` accepts:
+
+```json
+{
+  "accountId": "acct-pro",
+  "returnUrl": "http://localhost/account"
+}
+```
+
+It returns a Stripe-style `portalUrl` when a Stripe customer is already known for the account.
+
+`POST /billing/webhooks/stripe` accepts raw Stripe event payloads such as:
+
+```json
+{
+  "type": "customer.subscription.updated",
+  "data": {
+    "object": {
+      "id": "sub_123",
+      "customer": "cus_123",
+      "status": "active",
+      "metadata": {
+        "accountId": "acct-pro",
+        "targetPlan": "studio"
+      },
+      "creditBalance": 99
+    }
+  }
+}
+```
+
+The route verifies `stripe-signature` using the configured webhook secret and updates the billing account seam accordingly.
+
+For durable billing state in local or single-process hosted deployments, API startup also supports `BILLING_ACCOUNT_STORE_TYPE=sqlite` and `BILLING_ACCOUNT_STORE_SQLITE=/path/to/billing-accounts.db`.
 
 ## Profile sync manifest request
 
@@ -444,6 +544,7 @@ If the feature is not enabled for the supplied plan/mode/entitlements, the API r
 - `400` with `BAD_REQUEST` for malformed manifest request bodies or missing `accountId`
 - `403` with `FORBIDDEN` when hosted capability checks fail for an automation route
 - `403` with `FORBIDDEN` when hosted profile sync entitlements are missing
+- `403` with `FORBIDDEN` when hosted usage quotas are exhausted for metered routes
 - `422` with `VALIDATION_ERROR` when compile diagnostics contain errors
 - `404` with `NOT_FOUND` for unknown routes
 - `404` with `NOT_FOUND` when hosted profile library scope has no stored document

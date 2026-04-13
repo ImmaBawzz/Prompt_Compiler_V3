@@ -1,6 +1,6 @@
 {
   "project": "Prompt Compiler V3",
-  "currentPhase": "phase-25-execution-reliability-controls",
+  "currentPhase": "phase-28-streaming-execution-and-realtime-progress",
   "phases": [
     {
       "id": "phase-0-foundation",
@@ -1232,7 +1232,7 @@
       "title": "Live Provider Adapters"
     },
     {
-      "status": "active",
+      "status": "done",
       "goal": "Add deterministic retry/timeout controls to live execution so provider calls are resilient without duplicating logic across API, CLI, and extension.",
       "id": "phase-25-execution-reliability-controls",
       "tasks": [
@@ -1275,8 +1275,149 @@
           "title": "Expose execution policy in CLI and extension UX"
         }
       ],
-      "status": "done",
       "title": "Execution Reliability Controls"
+    },
+    {
+      "status": "done",
+      "goal": "Make usage metering durable and enforce credits/tier limits for hosted operations.",
+      "id": "phase-26-durable-metering-credit-enforcement",
+      "tasks": [
+        {
+          "status": "done",
+          "dependsOn": [],
+          "id": "P26-1",
+          "title": "Add SQLite-backed usage ledger store"
+        },
+        {
+          "status": "done",
+          "dependsOn": [
+            "P26-1"
+          ],
+          "id": "P26-2",
+          "title": "Wire usage ledger store selection in API bootstrap"
+        },
+        {
+          "status": "done",
+          "dependsOn": [
+            "P26-1"
+          ],
+          "id": "P26-3",
+          "title": "Add SQLite usage ledger persistence tests"
+        },
+        {
+          "status": "done",
+          "dependsOn": [
+            "P26-1"
+          ],
+          "id": "P26-4",
+          "title": "Add route-level credit/quota enforcement for execute/publish/install"
+        },
+        {
+          "status": "done",
+          "dependsOn": [
+            "P26-4"
+          ],
+          "id": "P26-5",
+          "title": "Expose usage limits and remaining credits in session/bootstrap"
+        }
+      ],
+      "title": "Durable Metering & Credit Enforcement"
+    },
+    {
+      "status": "done",
+      "goal": "Add Stripe-ready checkout, portal, and webhook seams that can persist account plan state and feed hosted bootstrap contracts.",
+      "id": "phase-27-stripe-billing-integration",
+      "tasks": [
+        {
+          "status": "done",
+          "dependsOn": [],
+          "id": "P27-1",
+          "title": "Add billing account store seam"
+        },
+        {
+          "status": "done",
+          "dependsOn": [
+            "P27-1"
+          ],
+          "id": "P27-2",
+          "title": "Add Stripe checkout route scaffold"
+        },
+        {
+          "status": "done",
+          "dependsOn": [
+            "P27-1"
+          ],
+          "id": "P27-3",
+          "title": "Add Stripe webhook and portal routes"
+        },
+        {
+          "status": "done",
+          "dependsOn": [
+            "P27-1",
+            "P27-3"
+          ],
+          "id": "P27-4",
+          "title": "Overlay persisted billing state in session bootstrap"
+        },
+        {
+          "status": "done",
+          "dependsOn": [
+            "P27-1"
+          ],
+          "id": "P27-5",
+          "title": "Add durable billing account persistence"
+        }
+      ],
+      "title": "Stripe Billing Integration"
+    },
+    {
+      "status": "active",
+      "goal": "Deliver streamed execution with realtime progress events so clients can show live operation state while keeping metering and entitlement behavior consistent.",
+      "id": "phase-28-streaming-execution-and-realtime-progress",
+      "tasks": [
+        {
+          "status": "done",
+          "dependsOn": [
+            "P27-5"
+          ],
+          "id": "P28-1",
+          "title": "Add SSE execute stream API route"
+        },
+        {
+          "status": "todo",
+          "dependsOn": [
+            "P28-1"
+          ],
+          "id": "P28-2",
+          "title": "Add extension live progress surface"
+        },
+        {
+          "status": "todo",
+          "dependsOn": [
+            "P28-1"
+          ],
+          "id": "P28-3",
+          "title": "Add CLI stream execution mode"
+        },
+        {
+          "status": "todo",
+          "dependsOn": [
+            "P28-1"
+          ],
+          "id": "P28-4",
+          "title": "Unify provider progress telemetry model"
+        },
+        {
+          "status": "todo",
+          "dependsOn": [
+            "P28-2",
+            "P28-3"
+          ],
+          "id": "P28-5",
+          "title": "Add streaming smoke and failure-path tests"
+        }
+      ],
+      "title": "Streaming Execution and Realtime Progress"
     }
   ]
 }

@@ -104,6 +104,8 @@ export interface ResolveEntitlementsInput {
   mode?: AccessMode;
   grantedEntitlements?: EntitlementKey[];
   creditBalance?: number | null;
+  usageSummary?: UsageAccountSummary;
+  usageQuotas?: UsageQuotaSnapshot;
 }
 
 export interface FeatureAccess {
@@ -136,6 +138,7 @@ export interface HostedSessionBootstrap {
     workflowAutomationEnabled: boolean;
     billingEnabled: boolean;
   };
+  usage?: HostedUsageOverview;
 }
 
 export type SyncAssetType = 'brand-profile' | 'template-pack';
@@ -605,6 +608,21 @@ export interface UsageAccountSummary {
   totalsByDomain: Record<UsageMeteringDomain, number>;
   totalsByUnit: Record<UsageMeteringUnit, number>;
   mostRecentEventAt?: string;
+}
+
+export interface UsageQuotaStatus {
+  limit: number;
+  used: number;
+  remaining: number;
+  exhausted: boolean;
+}
+
+export type UsageQuotaSnapshot = Record<UsageMeteringDomain, UsageQuotaStatus>;
+
+export interface HostedUsageOverview {
+  summary?: UsageAccountSummary;
+  quotas?: UsageQuotaSnapshot;
+  creditsRemaining: number | null;
 }
 
 // --- Profile Marketplace (Phase 17) ---

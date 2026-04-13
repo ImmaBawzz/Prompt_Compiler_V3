@@ -1,15 +1,37 @@
 import { randomUUID } from 'node:crypto';
 import {
+  AccountPlan,
   CreateUsageMeteringEventInput,
+  EntitlementKey,
   UsageAccountSummary,
+  UsageMeteringDomain,
   UsageMeteringEvent,
   UsageMeteringEventFilter,
+  UsageQuotaSnapshot,
   UsageMeteringUnit,
-  UsageMeteringDomain
+  UsageQuotaStatus
 } from './types';
 
 const VALID_UNITS: readonly UsageMeteringUnit[] = ['request', 'token'];
 const VALID_DOMAINS: readonly UsageMeteringDomain[] = ['execute', 'publish', 'marketplace-install'];
+
+export const USAGE_DOMAIN_QUOTA_LIMITS: Record<UsageMeteringDomain, Record<AccountPlan, number>> = {
+  execute: {
+    free: 0,
+    pro: 2,
+    studio: 5
+  },
+  publish: {
+    free: 0,
+    pro: 0,
+    studio: 3
+  },
+  'marketplace-install': {
+    free: 1,
+    pro: 3,
+    studio: 5
+  }
+};
 
 function isValidUnit(value: string): value is UsageMeteringUnit {
   return VALID_UNITS.includes(value as UsageMeteringUnit);
@@ -119,6 +141,48 @@ export function buildUsageAccountSummary(
     totalsByUnit,
     mostRecentEventAt
   };
+}
+
+export function resolveUsageQuotaPlan(
+  plan?: AccountPlan,
+  entitlements?: EntitlementKey[]
+): AccountPlan {
+  if (plan) {
+    return plan;
+  }
+
+  const entitlementSet = new Set(entitlements ?? []);
+  if (entitlementSet.has('studio.team')) {
+    return 'studio';
+  }
+  if (entitlementSet.has('pro.creator') || entitlementSet.has('credits.compute')) {
+    return 'pro';
+  }
+  return 'free';
+}
+
+export function buildUsageQuotaSnapshot(
+  summary: UsageAccountSummary,
+  plan?: AccountPlan,
+  entitlements?: EntitlementKey[]
+): UsageQuotaSnapshot {
+  const quotaPlan = resolveUsageQuotaPlan(plan, entitlements);
+  const result = {} as UsageQuotaSnapshot;
+
+  for (const domain of VALID_DOMAINS) {
+    const limit = USAGE_DOMAIN_QUOTA_LIMITS[domain][quotaPlan];
+    const used = summary.totalsByDomain[domain] ?? 0;
+    const remaining = Math.max(0, limit - used);
+    const status: UsageQuotaStatus = {
+      limit,
+      used,
+      remaining,
+      exhausted: used >= limit
+    };
+    result[domain] = status;
+  }
+
+  return result;
 }
 
 export interface UsageLedgerStore {

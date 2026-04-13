@@ -156,6 +156,7 @@ test('buildHostedSessionBootstrap preserves local-first access and exposes hoste
   assert.equal(localBootstrap.flags.localFirst, true);
   assert.equal(localBootstrap.flags.hostedSyncEnabled, false);
   assert.equal(localBootstrap.flags.billingEnabled, false);
+  assert.equal(localBootstrap.usage, undefined);
 
   const hostedBootstrap = buildHostedSessionBootstrap({
     accountId: 'acct-studio',
@@ -171,6 +172,42 @@ test('buildHostedSessionBootstrap preserves local-first access and exposes hoste
   assert.equal(hostedBootstrap.flags.workflowAutomationEnabled, true);
   assert.equal(hostedBootstrap.flags.billingEnabled, true);
   assert.equal(hostedBootstrap.entitlements.creditBalance, 42);
+  assert.equal(hostedBootstrap.usage?.creditsRemaining, 42);
+  assert.equal(hostedBootstrap.usage?.summary, undefined);
+});
+
+test('buildHostedSessionBootstrap includes usage summary and quota snapshot when supplied', () => {
+  const bootstrap = buildHostedSessionBootstrap({
+    accountId: 'acct-usage',
+    mode: 'hosted',
+    plan: 'pro',
+    creditBalance: 7,
+    usageSummary: {
+      accountId: 'acct-usage',
+      totalEvents: 3,
+      totalsByDomain: {
+        execute: 2,
+        publish: 0,
+        'marketplace-install': 1
+      },
+      totalsByUnit: {
+        request: 3,
+        token: 0
+      },
+      mostRecentEventAt: '2026-04-13T00:00:00.000Z'
+    },
+    usageQuotas: {
+      execute: { limit: 2, used: 2, remaining: 0, exhausted: true },
+      publish: { limit: 0, used: 0, remaining: 0, exhausted: true },
+      'marketplace-install': { limit: 3, used: 1, remaining: 2, exhausted: false }
+    }
+  });
+
+  assert.equal(bootstrap.usage?.summary?.totalEvents, 3);
+  assert.equal(bootstrap.usage?.quotas?.execute.limit, 2);
+  assert.equal(bootstrap.usage?.quotas?.execute.exhausted, true);
+  assert.equal(bootstrap.usage?.quotas?.['marketplace-install'].remaining, 2);
+  assert.equal(bootstrap.usage?.creditsRemaining, 7);
 });
 
 test('createProfileLibrarySyncManifest creates deterministic hosted sync assets', () => {

@@ -141,6 +141,14 @@ export function hasFeatureAccess(bundle: ResolvedEntitlements, key: HostedFeatur
 
 export function buildHostedSessionBootstrap(input: ResolveEntitlementsInput = {}): HostedSessionBootstrap {
   const entitlements = resolveEntitlements(input);
+  const usage =
+    input.usageSummary || input.usageQuotas || entitlements.creditBalance !== null
+      ? {
+          summary: input.usageSummary,
+          quotas: input.usageQuotas,
+          creditsRemaining: entitlements.creditBalance
+        }
+      : undefined;
 
   return {
     account: {
@@ -156,7 +164,8 @@ export function buildHostedSessionBootstrap(input: ResolveEntitlementsInput = {}
         hasFeature(entitlements, 'profile.sync.managed') || hasFeature(entitlements, 'workspace.shared'),
       workflowAutomationEnabled: hasFeature(entitlements, 'automation.jobs'),
       billingEnabled: entitlements.mode === 'hosted' && entitlements.entitlements.includes('credits.compute')
-    }
+    },
+    usage
   };
 }
 

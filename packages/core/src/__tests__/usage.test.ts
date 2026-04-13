@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildUsageQuotaSnapshot,
   buildUsageAccountSummary,
   createInMemoryUsageLedgerStore,
-  createUsageMeteringEvent
+  createUsageMeteringEvent,
+  resolveUsageQuotaPlan
 } from '../usage';
 
 test('createUsageMeteringEvent applies defaults and validates required fields', () => {
@@ -128,4 +130,41 @@ test('createInMemoryUsageLedgerStore filters by account, workspace, and domain',
   const summary = store.summarizeAccount('acct-1', { from: '2026-04-12T00:00:30.000Z' });
   assert.equal(summary.totalEvents, 1);
   assert.equal(summary.totalsByDomain.publish, 1);
+});
+
+test('resolveUsageQuotaPlan derives fallback plan from entitlements', () => {
+  assert.equal(resolveUsageQuotaPlan(undefined, ['studio.team']), 'studio');
+  assert.equal(resolveUsageQuotaPlan(undefined, ['credits.compute']), 'pro');
+  assert.equal(resolveUsageQuotaPlan(undefined, ['free.local']), 'free');
+});
+
+test('buildUsageQuotaSnapshot returns per-domain limits and remaining usage', () => {
+  const summary = buildUsageAccountSummary('acct-usage', [
+    createUsageMeteringEvent({
+      accountId: 'acct-usage',
+      domain: 'execute',
+      action: 'execute-compiled-output',
+      unit: 'request',
+      unitsConsumed: 2,
+      occurredAt: '2026-04-13T00:00:00.000Z'
+    }),
+    createUsageMeteringEvent({
+      accountId: 'acct-usage',
+      domain: 'marketplace-install',
+      action: 'install-listing',
+      unit: 'request',
+      unitsConsumed: 1,
+      occurredAt: '2026-04-13T00:01:00.000Z'
+    })
+  ]);
+
+  const quotas = buildUsageQuotaSnapshot(summary, 'pro');
+  assert.equal(quotas.execute.limit, 2);
+  assert.equal(quotas.execute.used, 2);
+  assert.equal(quotas.execute.remaining, 0);
+  assert.equal(quotas.execute.exhausted, true);
+  assert.equal(quotas.publish.limit, 0);
+  assert.equal(quotas.publish.exhausted, true);
+  assert.equal(quotas['marketplace-install'].limit, 3);
+  assert.equal(quotas['marketplace-install'].remaining, 2);
 });

@@ -1,3 +1,78 @@
+- date: 2026-04-13
+- phase: 28 / streaming execution and realtime progress (P28-1)
+- completed:
+  - added `POST /execute/stream` in `apps/api/src/server.ts` as an SSE endpoint that emits `started`, `progress`, and `completed` events for execution requests
+  - kept request validation, entitlement checks, and hosted execute quota checks aligned with `POST /execute`
+  - stream mode now records usage events for successful live executions with account identity, matching the non-streamed metering behavior
+  - added `apps/api/src/__tests__/phase28StreamingExecution.test.ts` covering dry-run streaming and live streaming with metered usage recording
+  - repo test suite green after streaming slice: API 139/139, Extension 6/6, CLI 8/8, Core 127/127
+- next: implement P28-2 extension live progress surface and P28-3 CLI stream mode
+- blockers: none
+
+- date: 2026-04-13
+- phase: 27 / stripe billing integration (P27-5)
+- completed:
+  - added `createSqliteBillingAccountStore()` in `apps/api/src/sqliteBillingAccountStore.ts` with durable per-account billing storage and Stripe customer lookup support
+  - preserved existing billing merge semantics while persisting plan, pending plan, Stripe ids, subscription status, credit balance, portal access, and timestamps
+  - wired API startup billing store selection via `BILLING_ACCOUNT_STORE_TYPE` and `BILLING_ACCOUNT_STORE_SQLITE`
+  - API startup log now includes billing storage mode alongside profile and usage storage modes
+  - added `apps/api/src/__tests__/sqliteBillingAccountStore.test.ts` to verify account upserts, Stripe customer lookup, and persistence across store reopen
+  - repo test suite green: API 137/137, Extension 6/6, CLI 8/8, Core 127/127
+- next: begin Phase 28 or next highest-priority commercial launch slice
+- blockers: none
+
+- date: 2026-04-13
+- phase: 27 / stripe billing integration (P27-1 through P27-4)
+- completed:
+  - added `BillingAccountStore` seam plus in-memory implementation in `apps/api/src/billingAccountStore.ts`
+  - added `POST /billing/checkout` Stripe-style session route with pending plan storage
+  - added `POST /billing/webhooks/stripe` with signature verification using shared HMAC helper and account plan/status mutation
+  - added `POST /billing/portal` route for known billing customers
+  - `GET /session/bootstrap` now overlays persisted billing plan and credit balance when billing state exists for the requested account
+  - added API tests in `apps/api/src/__tests__/billing.test.ts` for checkout, invalid signature, webhook activation, portal URL, and bootstrap reflection
+  - API suite green: 135/135 tests pass
+- next: implement P27-5 durable billing account persistence
+- blockers: none
+
+- date: 2026-04-13
+- phase: 26 / durable metering & credit enforcement (P26-5)
+- completed:
+  - moved usage quota contract into shared core types/helpers (`UsageQuotaSnapshot`, `HostedUsageOverview`, `buildUsageQuotaSnapshot`, `resolveUsageQuotaPlan`)
+  - extended `buildHostedSessionBootstrap()` to emit typed `usage` data with `summary`, `quotas`, and `creditsRemaining`
+  - `/session/bootstrap` now derives persisted usage summary + per-domain quota snapshot and returns them through the shared bootstrap contract
+  - added core tests for quota-plan derivation, quota snapshots, and bootstrap usage payload shape
+  - updated API parity + metering tests to validate `result.usage` instead of the old ad hoc `usageSummary` field
+  - core tests green: 127/127; API tests green: 131/131
+- next: start Phase 27 or next highest-priority backlog item
+- blockers: none
+
+- date: 2026-04-12
+- phase: 26 / durable metering & credit enforcement (P26-4)
+- completed:
+  - implemented hard quota enforcement helper in `apps/api/src/server.ts` with per-domain plan caps for hosted usage
+  - enforced quota checks before metered operations on `POST /execute` (live only), `POST /publish/jobs` (live only), and `POST /marketplace/install`
+  - quota checks now use durable `usageLedgerStore.summarizeAccount(..., { domain: ..., unit: 'request' })` prior to consuming units
+  - marketplace install metering now persists optional `plan`, `mode`, and `entitlements` fields for downstream quota/accounting work
+  - added regression and boundary tests in `apps/api/src/__tests__/phase22UsageMetering.test.ts`:
+    - `phase26 quotas: live execute is blocked when execute quota is exhausted`
+    - `phase26 quotas: live publish is blocked when publish quota is exhausted`
+    - `phase26 quotas: marketplace install is blocked when install quota is exhausted`
+  - API suite green: 131/131 tests pass
+- next: implement P26-5 usage limit + remaining credit exposure in `/session/bootstrap`
+- blockers: none
+
+- date: 2026-04-12
+- phase: 26 / durable metering & credit enforcement (P26-1 through P26-3)
+- completed:
+  - added `createSqliteUsageLedgerStore()` in `apps/api/src/sqliteUsageLedgerStore.ts`
+  - implemented SQLite schema and indexes for durable usage metering events (`usage_metering_events`)
+  - wired API bootstrap usage store selection via `USAGE_LEDGER_STORE_TYPE` and `USAGE_LEDGER_SQLITE`
+  - API startup log now includes both profile and usage storage modes
+  - added tests in `apps/api/src/__tests__/sqliteUsageLedgerStore.test.ts` for filtering/summary correctness and durability across store reopen
+  - API suite green: 128/128 tests pass
+- next: implement P26-4 route-level credit/quota enforcement on execute/publish/install
+- blockers: none
+
 - blockers: none
 
 - date: 2026-04-12

@@ -172,6 +172,41 @@ Add deterministic timeout and retry controls to provider execution so live calls
 - Added tests proving 429 retry recovery and 401 no-retry behavior.
 - CLI: `--policy-timeout`, `--policy-retries`, `--policy-retry-delay` flags forward policy in the execute payload; provider config JSON also accepts a `policy` field with CLI flags taking precedence.
 - Extension: `sendToProvider` command offers an optional "Configure policy" step with InputBox prompts for timeoutMs, maxRetries, and retryDelayMs; policy is persisted in the execution artifact.
+
+## Phase 26 — Durable Metering & Credit Enforcement (done)
+Make usage metering durable and prepare reliable credit/quota enforcement for hosted operations.
+
+- Added `createSqliteUsageLedgerStore()` in `apps/api/src/sqliteUsageLedgerStore.ts` with durable event persistence, indexed account/workspace queries, and summary support.
+- API bootstrap now supports usage-ledger store selection via env flags: `USAGE_LEDGER_STORE_TYPE` and `USAGE_LEDGER_SQLITE`.
+- Startup logging now reports both profile storage mode and usage storage mode.
+- Added API tests in `apps/api/src/__tests__/sqliteUsageLedgerStore.test.ts` covering filters/summaries and persistence across store reopen.
+- Added hard quota checks on metered hosted routes (`POST /execute`, `POST /publish/jobs`, `POST /marketplace/install`) using persisted usage summaries.
+- Quota boundaries are now enforced per domain/plan before dispatching provider/publish/install work.
+- Added API coverage for quota denial behavior on all three metered routes.
+- `/session/bootstrap` now returns typed `usage` overview data including the current usage summary, per-domain quota snapshot, and remaining credits.
+- Shared core contract now models bootstrap usage data and quota snapshots so API, CLI, and extension can consume the same shape without API-only assumptions.
+
+## Phase 27 — Stripe Billing Integration (done)
+Add Stripe-ready checkout, portal, and webhook seams that can persist account plan state and feed hosted bootstrap contracts.
+
+- Added `BillingAccountStore` seam and in-memory implementation in `apps/api/src/billingAccountStore.ts`.
+- Added `POST /billing/checkout` route that creates a Stripe-style checkout session envelope and stores pending plan state per account.
+- Added `POST /billing/webhooks/stripe` route with HMAC signature verification and plan/status updates for checkout/session/subscription events.
+- Added `POST /billing/portal` route that returns a Stripe-style customer portal URL for known billing customers.
+- `GET /session/bootstrap` now overlays persisted billing plan and credit balance when an account has billing state in the billing store.
+- Added API tests for checkout creation, invalid webhook signature rejection, webhook-driven plan activation, portal access, and bootstrap billing reflection.
+- Added `createSqliteBillingAccountStore()` for durable billing account persistence with Stripe customer lookup and restart-safe account state.
+- API startup now supports `BILLING_ACCOUNT_STORE_TYPE` and `BILLING_ACCOUNT_STORE_SQLITE` so billing storage can be switched to SQLite without changing route code.
+- Added SQLite billing-store durability tests covering account lookup and persistence across store reopen.
+
+## Phase 28 — Streaming Execution and Realtime Progress (active)
+Deliver streamed execution with realtime progress events so clients can show live operation state while keeping metering and entitlement behavior consistent.
+
+- Added `POST /execute/stream` SSE route that emits `started`, `progress`, and `completed` events for execution flows.
+- Streaming route reuses execution validation plus hosted entitlement/quota checks before dispatching provider calls.
+- Successful live streamed execution now records execute-domain usage events with the same metering semantics as `POST /execute`.
+- Added API tests for dry-run stream events and live stream metering behavior in `apps/api/src/__tests__/phase28StreamingExecution.test.ts`.
+- Next: extension live progress UX and CLI stream mode for cross-surface parity.
 # Roadmap
 
 ## Status semantics
