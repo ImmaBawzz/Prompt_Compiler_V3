@@ -5,10 +5,8 @@ const ROOT = process.cwd();
 const SCAN_DIRS = ['apps', 'packages'];
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs']);
 const FORBIDDEN_PATTERNS = [
-  /from\s+['"]@prompt-compiler\/core\/dist\//,
-  /import\(['"]@prompt-compiler\/core\/dist\//,
-  /from\s+['"]@prompt-compiler\/schemas\/dist\//,
-  /import\(['"]@prompt-compiler\/schemas\/dist\//
+  /from\s+['"]@prompt-compiler\/[^/]+\/dist\//,
+  /import\(['"]@prompt-compiler\/[^/]+\/dist\//
 ];
 
 /**
