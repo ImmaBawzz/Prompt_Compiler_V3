@@ -1,4 +1,15 @@
 - date: 2026-04-14
+- phase: release/ci hardening (protected-branch delivery)
+- completed:
+  - updated release workflow to only run GitHub release creation on tag refs (`if: startsWith(github.ref, 'refs/tags/v')`) so manual dispatch does not fail on non-tag refs
+  - validated guard checks locally: `npm run validate:imports` and `npm run validate:structure` both passed
+  - created focused commit `ab5758f` with CI/release remediation files only
+  - push to `main` was blocked by branch protection (`GH006`), so fix was pushed to branch `ci/release-import-boundary-fix`
+  - opened PR #1: https://github.com/ImmaBawzz/Prompt_Compiler_V3/pull/1
+- next: merge PR #1 after required checks pass, then tag from `main` to trigger `release.yml`
+- blockers: repository does not allow GitHub auto-merge (`enablePullRequestAutoMerge` disabled)
+
+- date: 2026-04-14
 - phase: release/ci hardening (import boundary regression guard)
 - completed:
   - confirmed root cause from failed release run: internal test import path `@prompt-compiler/core/dist/types` breaks when `apps/api` builds before `packages/core`
