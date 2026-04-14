@@ -5,6 +5,14 @@ Version history follows [Semantic Versioning](https://semver.org).
 
 ---
 
+## [Unreleased] — v0.4.0 Prep
+
+### Planned Release Focus
+- **M3 complete**: bounded learning safety gates completed and verified before autonomous modes unlock.
+- **Release target**: `v0.4.0` will package the completed Phase 31 scope.
+
+---
+
 ## [0.3.0] — 2026-04-12 — Alpha
 
 ### Summary
