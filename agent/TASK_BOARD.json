@@ -1546,7 +1546,7 @@
       ]
     },
     {
-      "status": "todo",
+      "status": "done",
       "goal": "Add bounded weight derivation, divergence detection, weight versioning lifecycle, shadow evaluation pipeline, and operator-facing approve/discard/rollback controls. All learning from this point is gated and reversible.",
       "id": "phase-31-bounded-learning-safe-gates",
       "title": "Bounded Learning Adaptation & Safe Gates (M3)",
@@ -1602,7 +1602,7 @@
         {
           "id": "P31-8",
           "title": "M3 gate: rollback drill verified; divergence alert fires on oscillation; shadow eval metering in ledger",
-          "status": "todo",
+          "status": "done",
           "dependsOn": ["P31-7"]
         }
       ]
