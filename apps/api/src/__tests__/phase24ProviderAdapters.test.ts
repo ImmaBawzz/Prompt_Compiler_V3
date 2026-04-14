@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
-import { executeCompiledOutput, estimateTokens } from '@prompt-compiler/core';
-import { ExecutionRequest } from '@prompt-compiler/core/dist/types';
+import { executeCompiledOutput, estimateTokens, ExecutionRequest } from '@prompt-compiler/core';
 
 /**
  * Phase 24: Live Provider Adapter Integration Tests

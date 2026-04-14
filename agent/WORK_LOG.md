@@ -1,3 +1,42 @@
+- date: 2026-04-14
+- phase: release/ci hardening (import boundary regression guard)
+- completed:
+  - confirmed root cause from failed release run: internal test import path `@prompt-compiler/core/dist/types` breaks when `apps/api` builds before `packages/core`
+  - verified current source import in `apps/api/src/__tests__/phase24ProviderAdapters.test.ts` uses the public `@prompt-compiler/core` entry point
+  - added `scripts/validate-import-boundaries.mjs` to scan `apps/**` and `packages/**` for forbidden `@prompt-compiler/*/dist/*` imports
+  - wired guard into root `verify` pipeline via new script `validate:imports`
+  - ran `npm run verify`; structure check, import-boundary check, and build pipeline all passed in this workspace
+- next: re-run GitHub release workflow from a commit/tag that includes this guard and the fixed provider adapter import
+- blockers: none
+
+- date: 2026-04-13
+- phase: autonomous maintenance pass (verification + diagnostics hygiene)
+- completed:
+  - ran `npm run validate:structure` and confirmed repository structure check passed
+  - ran full repo build and test ladder; all suites passed (API/Core/CLI/Extension)
+  - ran `npm run status` to confirm phase/task state remains coherent after the maintenance cycle
+  - revalidated live diagnostics for workflow and ops script files:
+    - `.github/workflows/ci.yml`: clean
+    - `scripts/set-github-secrets.ps1`: clean
+    - `.github/workflows/release.yml` and `.github/workflows/deploy-api.yml`: only non-blocking secret-context warnings remain (`VSCE_PAT`, `RAILWAY_TOKEN`)
+  - confirmed no active parse/syntax regressions in maintained workflow/script files; prior large YAML/PowerShell error burst corresponds to chat snapshot artifacts, not live workspace files
+- next: continue phase-31 implementation from next unblocked task (P31-4)
+- blockers: none
+
+- date: 2026-04-13
+- phase: 31 / bounded learning safe gates (P31-3)
+- completed:
+  - implemented divergence detection in `apps/api/src/sqliteFeedbackStore.ts` over the last 10 derivations using per-dimension coefficient of variation (clarity, specificity, styleConsistency, targetReadiness)
+  - added persistent learning audit events table (`learning_audit_events`) and indexed profile/time lookup for divergence event history
+  - added divergence event emission (`learningDivergenceDetected`) during derivation audit writes when any dimension exceeds CV threshold `0.15`
+  - wired `getLearningSummary(profileId)` to compute `divergenceAlert` from persisted divergence events within the last 7 days (replacing static false)
+  - added API tests in `apps/api/src/__tests__/phase30DurableFeedback.test.ts` for:
+    - divergence event generation from oscillating derivation history and bootstrap alert propagation
+    - stale divergence events outside 7-day window not triggering alert
+  - full repo verification passed: `npm run build` and `npm run test` green (API suite includes new P31 tests)
+- next: implement P31-4 weight versioning lifecycle and storage model
+- blockers: none
+
 - date: 2026-04-13
 - phase: 28 / streaming execution and realtime progress (P28-1)
 - completed:
