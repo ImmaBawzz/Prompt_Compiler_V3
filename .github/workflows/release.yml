@@ -43,7 +43,7 @@ jobs:
           fi
 
       - name: Publish to VS Code Marketplace
-        if: steps.vsce_preflight.outputs.enabled == 'true'
+        if: steps.vsce_preflight.outputs.enabled == 'true' && startsWith(github.ref, 'refs/tags/v')
         working-directory: apps/extension
         run: npx @vscode/vsce publish --no-dependencies --pat "$VSCE_PAT"
 
