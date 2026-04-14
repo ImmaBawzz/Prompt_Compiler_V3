@@ -1,6 +1,6 @@
 {
   "name": "prompt-compiler-api",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "main": "dist/apps/api/src/server.js",
   "types": "dist/apps/api/src/server.d.ts",
   "scripts": {
@@ -10,7 +10,7 @@
     "dev": "npm run build && node dist/apps/api/src/server.js"
   },
   "dependencies": {
-    "@prompt-compiler/core": "0.3.0",
-    "@prompt-compiler/schemas": "0.3.0"
+    "@prompt-compiler/core": "0.4.0",
+    "@prompt-compiler/schemas": "0.4.0"
   }
 }

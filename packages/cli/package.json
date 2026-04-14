@@ -1,6 +1,6 @@
 {
   "name": "@prompt-compiler/cli",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "main": "dist/cli/src/index.js",
   "types": "dist/cli/src/index.d.ts",
   "bin": {
@@ -13,6 +13,6 @@
     "sample": "npm run build && node dist/cli/src/index.js --brief ../../examples/brief.cinematic-afterglow.json --profile ../../examples/profile.ljv-signal-core.json --include-generic"
   },
   "dependencies": {
-    "@prompt-compiler/core": "0.3.0"
+    "@prompt-compiler/core": "0.4.0"
   }
 }

@@ -1,12 +1,18 @@
 {
   "schemaVersion": 1,
-  "lastReleasedMilestoneId": "M2",
+  "lastReleasedMilestoneId": "M3",
   "history": [
     {
       "milestoneId": "M2",
       "version": "0.3.0",
       "releasedAt": "2026-04-12",
       "notes": "Baseline alpha release before milestone-triggered release automation was added."
+    },
+    {
+      "milestoneId": "M3",
+      "version": "0.4.0",
+      "releasedAt": "2026-04-14",
+      "notes": "Prepared by milestone-triggered release automation."
     }
   ]
 }

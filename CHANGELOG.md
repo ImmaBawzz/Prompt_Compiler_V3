@@ -4,15 +4,23 @@ All notable changes are documented here.
 Version history follows [Semantic Versioning](https://semver.org).
 
 ---
+## [Unreleased] — v0.5.0 Prep
 
-## [Unreleased] — v0.4.0 Prep
+### Planned Release Focus
+- **M4 next**: Autonomous Learning Modes is the next milestone candidate once its gate is complete.
+- **Release target**: `v0.5.0` remains provisional until the next milestone gate is complete.
+---
+## [0.4.0] — 2026-04-14 — M3
+
+### Release Focus
+- **M3 complete**: bounded learning safety gates completed and verified before autonomous modes unlock.
+- **Automated milestone release**: promoted from the previous `[Unreleased]` block after all release gates passed.
 
 ### Planned Release Focus
 - **M3 complete**: bounded learning safety gates completed and verified before autonomous modes unlock.
 - **Release target**: `v0.4.0` will package the completed Phase 31 scope.
 
 ---
-
 ## [0.3.0] — 2026-04-12 — Alpha
 
 ### Summary

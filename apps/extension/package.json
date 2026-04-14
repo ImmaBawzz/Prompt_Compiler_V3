@@ -3,7 +3,7 @@
   "displayName": "Prompt Compiler",
   "description": "Compile, refine, and export AI prompt bundles for music, video, and multimodal creative workflows — directly from VS Code.",
   "publisher": "local-dev",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -28,7 +28,10 @@
   "engines": {
     "vscode": "^1.99.0"
   },
-  "categories": ["Other", "Machine Learning"],
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
   "galleryBanner": {
     "color": "#0d1117",
     "theme": "dark"
@@ -123,7 +126,10 @@
         },
         "promptCompiler.releaseChannel": {
           "type": "string",
-          "enum": ["stable", "preview"],
+          "enum": [
+            "stable",
+            "preview"
+          ],
           "default": "stable",
           "enumDescriptions": [
             "Stable channel — production-ready features only.",
@@ -206,7 +212,7 @@
     "package": "npx vsce package --no-dependencies"
   },
   "dependencies": {
-    "@prompt-compiler/core": "0.3.0"
+    "@prompt-compiler/core": "0.4.0"
   },
   "devDependencies": {
     "@types/vscode": "^1.99.0",
