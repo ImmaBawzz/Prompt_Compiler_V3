@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "defaultMode": "pr",
+  "milestones": [
+    {
+      "id": "M1",
+      "phaseId": "phase-29-production-hardening-m1-release",
+      "label": "Production Hardening & M1 Release Gate",
+      "taskGateIds": ["P29-9"],
+      "changelogFocus": "production hardening completed and the first production-capable release gate passed"
+    },
+    {
+      "id": "M2",
+      "phaseId": "phase-30-durable-feedback-learning-observability",
+      "label": "Durable Feedback Foundation & Learning Observability",
+      "taskGateIds": ["P30-7"],
+      "changelogFocus": "durable feedback persistence and learning observability foundations completed"
+    },
+    {
+      "id": "M3",
+      "phaseId": "phase-31-bounded-learning-safe-gates",
+      "label": "Bounded Learning Adaptation & Safe Gates",
+      "taskGateIds": ["P31-8"],
+      "changelogFocus": "bounded learning safety gates completed and verified before autonomous modes unlock"
+    },
+    {
+      "id": "M4",
+      "phaseId": "phase-32-autonomous-learning-modes",
+      "label": "Autonomous Learning Modes",
+      "taskGateIds": ["P32-8"],
+      "changelogFocus": "autonomous learning modes completed with correct candidate behavior and safe auto-promotion"
+    },
+    {
+      "id": "M5",
+      "phaseId": "phase-33-beta-tuning-ga-readiness",
+      "label": "Beta Tuning & GA Readiness",
+      "taskGateIds": ["P33-6"],
+      "changelogFocus": "GA readiness validated across beta tuning, security, rollback, and release sign-off"
+    }
+  ]
+}

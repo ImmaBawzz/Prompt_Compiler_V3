@@ -1,0 +1,183 @@
+name: Milestone Release Automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Release mode
+        required: true
+        default: pr
+        type: choice
+        options:
+          - pr
+          - direct
+      skipVerify:
+        description: Skip npm run verify during release preparation
+        required: false
+        default: false
+        type: boolean
+      directConfirmation:
+        description: Required for direct mode. Type RELEASE to continue.
+        required: false
+        type: string
+  schedule:
+    - cron: "17 9 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: milestone-release-${{ github.ref_name || 'default' }}
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.mode.outputs.value }}
+      eligible: ${{ steps.evaluate.outputs.eligible }}
+      reason: ${{ steps.evaluate.outputs.reason }}
+      current_version: ${{ steps.evaluate.outputs.current_version }}
+      next_version: ${{ steps.evaluate.outputs.next_version }}
+      pending_milestone_id: ${{ steps.evaluate.outputs.pending_milestone_id }}
+      pending_milestone_label: ${{ steps.evaluate.outputs.pending_milestone_label }}
+      summary: ${{ steps.evaluate.outputs.summary }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve release mode
+        id: mode
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "value=pr" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Evaluate next milestone release
+        id: evaluate
+        run: node scripts/evaluate-milestone-release.mjs --github-output
+
+      - name: Report evaluation
+        run: |
+          echo "Mode: ${{ steps.mode.outputs.value }}"
+          echo "Eligible: ${{ steps.evaluate.outputs.eligible }}"
+          echo "Summary: ${{ steps.evaluate.outputs.summary }}"
+
+  prepare-pr:
+    needs: evaluate
+    if: needs.evaluate.outputs.eligible == 'true' && needs.evaluate.outputs.mode == 'pr'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare release changes
+        id: prepare
+        shell: bash
+        env:
+          SKIP_VERIFY: ${{ github.event_name == 'workflow_dispatch' && inputs.skipVerify || false }}
+        run: |
+          args=("scripts/prepare-release.mjs" "--mode=pr" "--github-output")
+          if [ "$SKIP_VERIFY" = "true" ]; then
+            args+=("--skip-verify")
+          fi
+          node "${args[@]}"
+
+      - name: Create or update release pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: ${{ steps.prepare.outputs.release_branch }}
+          commit-message: ${{ steps.prepare.outputs.commit_message }}
+          title: ${{ steps.prepare.outputs.pr_title }}
+          body: |
+            Automated milestone release preparation.
+
+            Milestone: ${{ steps.prepare.outputs.milestone_id }} - ${{ steps.prepare.outputs.milestone_label }}
+            Version: v${{ steps.prepare.outputs.version }}
+            Previous version: v${{ steps.prepare.outputs.previous_version }}
+            Release date: ${{ steps.prepare.outputs.released_at }}
+
+            This PR was generated from milestone release automation and includes:
+            - synchronized workspace version bump
+            - changelog promotion from Unreleased to release section
+            - release state advancement
+            - package-lock refresh
+          delete-branch: false
+          labels: release, automation
+
+  prepare-direct:
+    needs: evaluate
+    if: needs.evaluate.outputs.eligible == 'true' && needs.evaluate.outputs.mode == 'direct'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce direct release confirmation
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Direct release mode is only allowed from workflow_dispatch." >&2
+            exit 1
+          fi
+          if [ "${{ inputs.directConfirmation }}" != "RELEASE" ]; then
+            echo "Set directConfirmation to RELEASE for direct mode." >&2
+            exit 1
+          fi
+          if [ "${{ github.ref_name }}" != "main" ]; then
+            echo "Direct mode only runs on main." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Prepare release changes
+        id: prepare
+        shell: bash
+        env:
+          SKIP_VERIFY: ${{ inputs.skipVerify || false }}
+        run: |
+          args=("scripts/prepare-release.mjs" "--mode=direct" "--github-output")
+          if [ "$SKIP_VERIFY" = "true" ]; then
+            args+=("--skip-verify")
+          fi
+          node "${args[@]}"
+
+      - name: Commit, tag, and push release
+        shell: bash
+        run: |
+          git add package.json package-lock.json CHANGELOG.md release/state.json apps/api/package.json apps/extension/package.json packages/cli/package.json packages/core/package.json packages/schemas/package.json
+          git commit -m "${{ steps.prepare.outputs.commit_message }}"
+          git tag "${{ steps.prepare.outputs.tag }}"
+          git push origin HEAD:main
+          git push origin "${{ steps.prepare.outputs.tag }}"

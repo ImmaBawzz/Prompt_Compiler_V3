@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      RELEASE_WEBHOOK_URL: ${{ secrets.RELEASE_WEBHOOK_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -21,6 +23,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: npm ci
@@ -47,9 +50,62 @@ jobs:
         working-directory: apps/extension
         run: npx @vscode/vsce publish --no-dependencies --pat "$VSCE_PAT"
 
+      - name: Preflight npm publish guard
+        id: npm_preflight
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "NPM_TOKEN not configured — skipping npm publish."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish npm workspaces
+        id: npm_publish
+        if: steps.npm_preflight.outputs.enabled == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for workspace in packages/core packages/schemas packages/cli; do
+            package_name=$(node -p "require('./${workspace}/package.json').name")
+            package_version=$(node -p "require('./${workspace}/package.json').version")
+
+            if npm view "${package_name}@${package_version}" version >/dev/null 2>&1; then
+              echo "Skipping ${package_name}@${package_version}; already published."
+              continue
+            fi
+
+            npm publish --workspace "${workspace}" --access public
+          done
+
       - name: Create GitHub Release with VSIX
         if: startsWith(github.ref, 'refs/tags/v')
+        id: github_release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: apps/extension/prompt-compiler-extension.vsix
+
+      - name: Notify release webhook
+        if: startsWith(github.ref, 'refs/tags/v') && env.RELEASE_WEBHOOK_URL != ''
+        continue-on-error: true
+        env:
+          RELEASE_URL: ${{ steps.github_release.outputs.url }}
+          NPM_PUBLISH_ENABLED: ${{ steps.npm_preflight.outputs.enabled }}
+        run: |
+          payload=$(cat <<EOF
+          {
+            "repository": "${{ github.repository }}",
+            "tag": "${{ github.ref_name }}",
+            "releaseUrl": "${RELEASE_URL}",
+            "marketplacePublished": "${{ steps.vsce_preflight.outputs.enabled }}",
+            "npmPublishEnabled": "${NPM_PUBLISH_ENABLED}"
+          }
+          EOF
+          )
+
+          curl --fail --show-error --silent \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            "$RELEASE_WEBHOOK_URL"
