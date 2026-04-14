@@ -7,6 +7,21 @@
 - todo: planned and must-ship in the active phase
 - deferred: intentionally moved out of a closed phase into a later active phase
 
+## Ops continuity update (2026-04-13)
+
+- Added `scripts/set-github-secrets.ps1` to provision `VSCE_PAT` and `RAILWAY_TOKEN` for `ImmaBawzz/Prompt_Compiler_V3`.
+- Added `npm run ops:set-gh-secrets` wrapper to run the setup consistently.
+- Script resolves secrets from CLI args, then env vars, and finally secure interactive prompts.
+- This unblocks repeatable completion of manual external-token setup tasks in phase 35/36.
+
+## Release automation update (2026-04-15)
+
+- Added machine-readable milestone release policy in `release/milestones.json` and release progress state in `release/state.json`.
+- Added local release automation scripts for milestone evaluation, version synchronization, and release preparation (`npm run release:evaluate`, `npm run release:prepare`, `npm run release:prepare:direct`).
+- Added `.github/workflows/milestone-release.yml` to evaluate M1-M5 and either open a release PR or directly commit/tag/push from `main` when explicitly confirmed.
+- Extended `.github/workflows/release.yml` so tag releases can also publish npm workspaces and notify an external webhook when configured.
+- `npm run verify` now includes `npm run validate:versions` so workspace versions and internal dependency pins stay synchronized before any release cut.
+
 ## Phase 1
 Working compiler core with tests and examples.
 
@@ -283,12 +298,12 @@ Add safety controls that prevent runaway or adversarial weight drift while still
 
 **Shadow evaluation pipeline:**
 - `POST /admin/learning/shadow-evaluate` compiles a bank of reference briefs with both candidate and baseline weights; compares scorecard averages.
-- Promotion criteria: candidate avg score ≥ baseline avg score − 2% on specificity and clarity; no divergence alert in prior 7 days; min 5 shadow compilations run.
-- Costs: shadow compile = 0.1 credits; deducted from learning quota domain.
+- Promotion criteria: candidate average score must not regress beyond `-2%`; no divergence alert in prior 7 days; min 5 shadow compilations run.
+- Costs: each hosted shadow evaluation consumes `1 request` from the `learning` quota domain.
 
 **Operator controls (Extension):**
 - `promptCompiler.approveLearningCandidate` — promotes candidate to active; logs approvedBy, approvedAt.
-- `promptCompiler.discardLearningCandidate` — marks candidate rolled_back; logs reason.
+- `promptCompiler.discardLearningCandidate` — discards the selected candidate version from the pending set.
 - `promptCompiler.rollbackWeights` — reverts active version to prior; creates audit entry.
 - Weight history panel in Studio webview: list of versions, current active, shadow eval results.
 
