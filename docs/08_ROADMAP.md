@@ -1,5 +1,9 @@
 # Roadmap
 
+## Vision
+
+See [99_VISION_AUTONOMY.md](99_VISION_AUTONOMY.md) for the current and future vision of autonomous development in Prompt Compiler V3. This document is the north star for both internal and external alignment, and should be reviewed at each major milestone.
+
 ## Status semantics
 
 - done: implemented and verified

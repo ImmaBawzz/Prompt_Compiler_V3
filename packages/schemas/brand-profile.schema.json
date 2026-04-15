@@ -18,6 +18,11 @@
     "voice": {
       "type": "string"
     },
+    "learningMode": {
+      "type": "string",
+      "enum": ["manual", "manual-review", "scheduled", "responsive", "autonomous"],
+      "description": "How the profile learns from feedback: manual (no auto-update), manual-review (requires approval), scheduled (batch updates), responsive (reactive to feedback), autonomous (auto-promotes qualified versions)"
+    },
     "signatureMotifs": {
       "type": "array",
       "items": {

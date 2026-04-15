@@ -1,0 +1,22 @@
+name: Agent2 Cycle
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  agent2-cycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run single Agent2 cycle
+        run: npm run agent2:run -- --single-cycle --skip-checks
+        env:
+          AGENT2_MEMORY_DB_PATH: ${{ runner.temp }}/agent2-memory.db
+          AGENT2_ENABLE_CODEWRITER: "false"

@@ -11,6 +11,8 @@
 
 [Quick Start](#quick-start) · [VS Code Extension](#vs-code-extension) · [CLI](#cli) · [API](#api) · [Architecture](#architecture) · [Roadmap](#roadmap) · [Contributing](#contributing)
 
+[Vision: Autonomous Development](docs/99_VISION_AUTONOMY.md)
+
 </div>
 
 ---

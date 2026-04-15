@@ -705,6 +705,32 @@ async function runSingleCycle(options) {
           };
         }
       }
+
+      // --- Phase progression integration ---
+      try {
+        // Dynamically import phase-evaluator.mjs
+        const { evaluatePhaseProgression } = await import(path.resolve(process.cwd(), 'scripts/phase-evaluator.mjs'));
+        const phaseResult = evaluatePhaseProgression();
+        if (phaseResult.eligible && phaseResult.nextPhaseId) {
+          // Load and update TASK_BOARD.json
+          const taskBoardPath = path.resolve(process.cwd(), 'agent/TASK_BOARD.json');
+          const board = JSON.parse(fs.readFileSync(taskBoardPath, 'utf8'));
+          const prevPhase = board.currentPhase;
+          board.currentPhase = phaseResult.nextPhaseId;
+          if (!board.phaseEvidence) board.phaseEvidence = {};
+          board.phaseEvidence[phaseResult.nextPhaseId] = {
+            advancedAt: toIsoNow(),
+            fromPhase: prevPhase,
+            rationale: 'All tasks done and gates passed (auto-advanced by Agent2)',
+            cycleId: previous?.cycleId || null
+          };
+          fs.writeFileSync(taskBoardPath, JSON.stringify(board, null, 2));
+        }
+      } catch (err) {
+        // Log but do not fail the cycle if phase progression fails
+        console.error('[Agent2] Phase progression check failed:', err);
+      }
+      // --- End phase progression integration ---
     }
 
     const cycle = {

@@ -15,6 +15,18 @@ import {
   ScoreWeights
 } from './types';
 
+// Learning options for bounded adaptation
+export interface LearnOpts {
+  maxWeightDelta?: number; // Maximum allowed change per dimension (default 0.05)
+  minSampleSize?: number;  // Minimum feedback records required (default 5)
+  cooldownMs?: number;     // Minimum ms between derivations (default 86400000 = 24h)
+  decayFactor?: number;    // Not yet used (future: recency weighting)
+  enableLearning?: boolean; // If false, always return previous weights
+  lastDerivedAt?: string | null; // ISO string of last derivation
+  prevWeights?: ScoreWeights | null; // Previous weights for delta clamp
+  now?: number; // Current time (ms since epoch), for testability
+}
+
 // ---------------------------------------------------------------------------
 // Default weights — mirror the implicit weights in scorers.ts
 // ---------------------------------------------------------------------------
@@ -71,9 +83,26 @@ export function createFeedbackRecord(input: CreateFeedbackInput): FeedbackRecord
  * - The resulting weights stay in [0.5, 2.0] and are normalized so the sum
  *   equals the sum of DEFAULT_SCORE_WEIGHTS (4.0).
  */
-export function deriveScoringWeightsFromFeedback(records: FeedbackRecord[]): ScoreWeights {
-  if (records.length === 0) {
-    return { ...DEFAULT_SCORE_WEIGHTS };
+
+export function deriveScoringWeightsFromFeedback(
+  records: FeedbackRecord[],
+  opts?: LearnOpts
+): ScoreWeights {
+  // Defaults
+  const maxWeightDelta = opts?.maxWeightDelta ?? 0.05;
+  const minSampleSize = opts?.minSampleSize ?? 5;
+  const cooldownMs = opts?.cooldownMs ?? 86400000;
+  const enableLearning = opts?.enableLearning !== false;
+  const now = opts?.now ?? Date.now();
+  const prevWeights = opts?.prevWeights ?? DEFAULT_SCORE_WEIGHTS;
+  const lastDerivedAt = opts?.lastDerivedAt ? Date.parse(opts.lastDerivedAt) : null;
+
+  // If learning is disabled, or not enough samples, or cooldown not elapsed, return previous weights
+  if (!enableLearning || records.length < minSampleSize) {
+    return { ...prevWeights };
+  }
+  if (lastDerivedAt && now - lastDerivedAt < cooldownMs) {
+    return { ...prevWeights };
   }
 
   const total = records.length;
@@ -104,11 +133,22 @@ export function deriveScoringWeightsFromFeedback(records: FeedbackRecord[]): Sco
   const rawSum = raw.clarity + raw.specificity + raw.styleConsistency + raw.targetReadiness;
   const factor = 4.0 / rawSum;
 
+  // Clamp each dimension to maxWeightDelta from previous weights
+  function clampDelta(dim: keyof ScoreWeights): number {
+    const prev = prevWeights[dim];
+    const next = round2(raw[dim] * factor);
+    const delta = next - prev;
+    if (Math.abs(delta) > maxWeightDelta) {
+      return round2(prev + Math.sign(delta) * maxWeightDelta);
+    }
+    return next;
+  }
+
   return {
-    clarity: round2(raw.clarity * factor),
-    specificity: round2(raw.specificity * factor),
-    styleConsistency: round2(raw.styleConsistency * factor),
-    targetReadiness: round2(raw.targetReadiness * factor)
+    clarity: clampDelta('clarity'),
+    specificity: clampDelta('specificity'),
+    styleConsistency: clampDelta('styleConsistency'),
+    targetReadiness: clampDelta('targetReadiness')
   };
 }
 

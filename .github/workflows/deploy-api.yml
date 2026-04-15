@@ -1,0 +1,41 @@
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Preflight deploy guard
+        id: preflight
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "RAILWAY_TOKEN not configured — skipping deploy."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        if: steps.preflight.outputs.enabled == 'true'
+        run: npm ci && npm run build
+
+      - name: Deploy
+        if: steps.preflight.outputs.enabled == 'true'
+        run: railway up --service prompt-compiler-api --detach

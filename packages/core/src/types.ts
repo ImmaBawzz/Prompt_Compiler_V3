@@ -26,6 +26,7 @@ export interface BrandProfile {
   avoid?: string[];
   formatPreferences?: Record<string, string>;
   toneWeights?: Record<string, number>;
+  learningMode?: 'manual' | 'manual-review' | 'scheduled' | 'responsive' | 'autonomous';
 }
 
 export interface TemplatePack {

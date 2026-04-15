@@ -1,5 +1,6 @@
 {
   "project": "Prompt Compiler V3",
+  "visionDoc": "../docs/99_VISION_AUTONOMY.md",
   "currentPhase": "phase-31-bounded-learning-safe-gates",
   "phases": [
     {

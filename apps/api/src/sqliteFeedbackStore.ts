@@ -31,11 +31,20 @@ export interface LearningSummary {
   divergenceAlert: boolean;
 }
 
-export interface LearningAwareFeedbackStore extends FeedbackStore {
-  getLearningSummary(profileId: string): LearningSummary;
+export interface WeightVersion {
+  version: number;
+  weights: ScoreWeights;
+  derivedFromHash: string | null;
+  createdAt: string;
+  status: 'candidate' | 'active' | 'archived';
 }
 
-const SCHEMA_VERSION = 1;
+export interface LearningAwareFeedbackStore extends FeedbackStore {
+  getLearningSummary(profileId: string): LearningSummary;
+  listWeightVersions(profileId: string, status?: 'candidate' | 'active' | 'archived'): WeightVersion[];
+}
+
+const SCHEMA_VERSION = 2;
 
 const DDL = `
   CREATE TABLE IF NOT EXISTS feedback_records (
@@ -69,6 +78,19 @@ const DDL = `
 
   CREATE INDEX IF NOT EXISTS idx_weight_derivations_profile
     ON weight_derivations(profile_id, derived_at);
+
+  CREATE TABLE IF NOT EXISTS weight_versions (
+    profile_id         TEXT NOT NULL,
+    version            INTEGER NOT NULL,
+    weights            TEXT NOT NULL,
+    derived_from_hash  TEXT,
+    created_at         TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'candidate',
+    PRIMARY KEY (profile_id, version)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_weight_versions_profile_status
+    ON weight_versions(profile_id, status);
 `;
 
 const DEFAULT_WEIGHTS: ScoreWeights = {
@@ -183,6 +205,31 @@ export function createSqliteFeedbackStore(dbPath: string): LearningAwareFeedback
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
+  const stmtInsertWeightVersion = db.prepare(`
+    INSERT OR REPLACE INTO weight_versions (
+      profile_id,
+      version,
+      weights,
+      derived_from_hash,
+      created_at,
+      status
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  const stmtListWeightVersions = db.prepare(`
+    SELECT version, weights, derived_from_hash, created_at, status
+    FROM weight_versions
+    WHERE profile_id = ?
+    ORDER BY version DESC
+  `);
+
+  const stmtListWeightVersionsByStatus = db.prepare(`
+    SELECT version, weights, derived_from_hash, created_at, status
+    FROM weight_versions
+    WHERE profile_id = ? AND status = ?
+    ORDER BY version DESC
+  `);
+
   const saveDerivationAudit = (profileId: string, aggregate: FeedbackAggregate, triggerSource: string): void => {
     const latest = stmtLatestDerivation.get(profileId);
     const priorWeights = latest ? parseScoreWeights(latest['new_weights']) : null;
@@ -264,6 +311,33 @@ export function createSqliteFeedbackStore(dbPath: string): LearningAwareFeedback
         pendingCandidates: 0,
         divergenceAlert: false
       };
+    },
+
+    listWeightVersions(profileId: string, status?: 'candidate' | 'active' | 'archived'): WeightVersion[] {
+      const rows = status
+        ? (stmtListWeightVersionsByStatus.all(profileId, status) as Record<string, unknown>[])
+        : (stmtListWeightVersions.all(profileId) as Record<string, unknown>[]);
+
+      const versions: WeightVersion[] = [];
+      for (const row of rows) {
+        const version = Number(row['version']);
+        const weightsStr = row['weights'];
+        const status_value = row['status'];
+
+        if (typeof weightsStr === 'string' && typeof status_value === 'string') {
+          const weights = parseScoreWeights(weightsStr);
+          if (weights) {
+            versions.push({
+              version,
+              weights,
+              derivedFromHash: typeof row['derived_from_hash'] === 'string' ? row['derived_from_hash'] : null,
+              createdAt: typeof row['created_at'] === 'string' ? row['created_at'] : new Date().toISOString(),
+              status: status_value as 'candidate' | 'active' | 'archived'
+            });
+          }
+        }
+      }
+      return versions;
     },
 
     close(): void {
