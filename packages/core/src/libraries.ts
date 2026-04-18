@@ -11,12 +11,30 @@ function mergeProfiles(
 ): VersionedBrandProfile[] {
   const map = new Map(existing.map((item) => [item.id, item]));
 
+
   for (const profile of updates ?? []) {
+    const prev = map.get(profile.id);
     map.set(profile.id, {
       ...profile,
       updatedAt: profile.updatedAt ?? updatedAt,
-      version: profile.version ?? map.get(profile.id)?.version ?? '1'
+      version: profile.version ?? prev?.version ?? '1',
+      learningMode:
+        profile.learningMode !== undefined
+          ? profile.learningMode
+          : prev?.learningMode !== undefined
+            ? prev.learningMode
+            : 'manual'
     });
+  }
+
+  // Ensure all existing profiles not in updates are included and have learningMode defaulted
+  for (const [id, profile] of map) {
+    if (!(updates ?? []).some((p) => p.id === id)) {
+      map.set(id, {
+        ...profile,
+        learningMode: profile.learningMode ?? 'manual'
+      });
+    }
   }
 
   return Array.from(map.values()).sort(byId);

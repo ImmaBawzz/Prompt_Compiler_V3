@@ -438,16 +438,119 @@ export function createServer(options: ServerOptions = {}): http.Server {
   const processedStripeEventIds = new Set<string>();
 
   return http.createServer(async (req, res) => {
-    const url = requestUrl(req);
+
+  const url = requestUrl(req);
+
+
+
+
+    // Move handler after authCtx is defined
+    const authCtx = resolveAuthContext(req, options.authConfig ?? {});
+
+    // Full logic for POST /admin/learning/batch-recompute
+    if (req.method === 'POST' && url && url.pathname === '/admin/learning/batch-recompute') {
+      try {
+        const raw = await readBody(req);
+        const payload = JSON.parse(raw);
+        const accountId = payload.accountId;
+        // 400 if missing accountId
+        if (!accountId || typeof accountId !== 'string') {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Missing or invalid accountId.' });
+          return;
+        }
+        // 403 if not owner
+        const ownerError = requireOwnerAccess(authCtx, accountId);
+        if (ownerError) {
+          errorResponse(res, authErrorStatus(ownerError), ownerError);
+          return;
+        }
+        // 501 if feedbackStore is not LearningAwareFeedbackStore
+        const learningStore = feedbackStore as unknown as import('./sqliteFeedbackStore').LearningAwareFeedbackStore;
+        if (typeof learningStore.getLearningSummary !== 'function') {
+          errorResponse(res, 501, { code: 'SERVER_ERROR', message: 'Learning store not available.' });
+          return;
+        }
+        // Gather all profiles for this account
+        const docs = profileLibraryStore.list(accountId);
+        const profiles = docs.flatMap(doc => doc.profiles.map(p => ({ ...p, workspaceId: doc.workspaceId })));
+        const recomputed: string[] = [];
+        const skipped: Array<{ profileId: string; reason: string }> = [];
+        const computedAt = new Date().toISOString();
+        for (const profile of profiles) {
+          const profileId = profile.id;
+          const learningMode = profile.learningMode || 'manual';
+          if (learningMode === 'manual' || learningMode === 'manual-review') {
+            skipped.push({ profileId, reason: 'manual_mode' });
+            continue;
+          }
+          let summary: import('./sqliteFeedbackStore').LearningSummary;
+          try {
+            summary = learningStore.getLearningSummary(profileId);
+          } catch {
+            skipped.push({ profileId, reason: 'error' });
+            continue;
+          }
+          if (summary.divergenceAlert) {
+            skipped.push({ profileId, reason: 'divergence_alert' });
+            continue;
+          }
+          if (summary.feedbackCount < 5) {
+            skipped.push({ profileId, reason: 'insufficient_feedback' });
+            continue;
+          }
+          // Recompute (triggers derivation)
+          try {
+            learningStore.getAggregate(profileId);
+            recomputed.push(profileId);
+          } catch {
+            skipped.push({ profileId, reason: 'error' });
+          }
+        }
+        // Meter recomputes if in hosted mode and usageLedgerStore is present
+        if (payload.mode === 'hosted' && usageLedgerStore && recomputed.length > 0 && authCtx.accountId) {
+          usageLedgerStore.append(
+            createUsageMeteringEvent({
+              accountId: authCtx.accountId,
+              domain: 'learning',
+              action: 'batch-recompute',
+              unit: 'request',
+              unitsConsumed: recomputed.length,
+              plan: payload.plan,
+              mode: payload.mode,
+              entitlements: payload.entitlements,
+              occurredAt: computedAt
+            })
+          );
+        }
+        json(res, 200, {
+          ok: true,
+          result: {
+            recomputed,
+            skipped,
+            summary: {
+              total: profiles.length,
+              recomputed: recomputed.length,
+              skipped: skipped.length
+            },
+            computedAt
+          }
+        });
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Malformed JSON body.' });
+          return;
+        }
+        errorResponse(res, 500, { code: 'SERVER_ERROR', message: error instanceof Error ? error.message : 'Unknown error' });
+      }
+      return;
+    }
+
 
     if (!url) {
       errorResponse(res, 400, { code: 'BAD_REQUEST', message: 'Missing request URL.' });
       return;
     }
 
-    // Resolve identity for this request.  Public routes ignore the context;
-    // protected routes call requireAuth / requireOwnerAccess before processing.
-    const authCtx = resolveAuthContext(req, options.authConfig ?? {});
 
     if (req.method === 'GET' && url.pathname === '/health') {
       json(res, 200, { ok: true, service: 'prompt-compiler-api', status: 'healthy' });

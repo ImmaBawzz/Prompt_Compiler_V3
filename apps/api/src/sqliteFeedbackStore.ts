@@ -89,8 +89,16 @@ const DDL = `
     PRIMARY KEY (profile_id, version)
   );
 
+
   CREATE INDEX IF NOT EXISTS idx_weight_versions_profile_status
     ON weight_versions(profile_id, status);
+
+  CREATE TABLE IF NOT EXISTS learning_audit_events (
+    profile_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    payload_json TEXT,
+    created_at TEXT NOT NULL
+  );
 `;
 
 const DEFAULT_WEIGHTS: ScoreWeights = {

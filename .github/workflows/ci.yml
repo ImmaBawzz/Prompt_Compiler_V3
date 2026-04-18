@@ -15,4 +15,30 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Automated self-healing for missing modules/types
+      - name: Type check and auto-fix missing modules
+        run: |
+          set -e
+          npx tsc --noEmit || {
+            echo "Type check failed. Attempting to auto-install missing modules..."
+            grep -oE "Cannot find module '[^']+'" < <(npx tsc --noEmit) | awk -F\' '{print $2}' | xargs -r npm install || true
+            npx tsc --noEmit
+          }
+      # Auto-commit lockfile and package.json on dev branches
+      - name: Auto-commit dependency fixes (dev branches only)
+        if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json || true
+          git diff --cached --quiet || git commit -m "ci: auto-fix missing dependencies [skip ci]"
+          git push || true
+      # On main/master, fail with clear message if auto-fix was needed
+      - name: Fail on main if auto-fix needed
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        run: |
+          git diff --exit-code package.json package-lock.json || {
+            echo "[ERROR] Missing dependencies were auto-fixed. Please review and commit the changes. See docs/BUILD_SELF_HEALING.md."
+            exit 1
+          }
       - run: npm run verify
